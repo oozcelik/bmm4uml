@@ -1,5 +1,5 @@
 # bmm4uml
-## UML development for BMM4
+## UML development for BMMX
 
 to extract signal lifetime ----
 
