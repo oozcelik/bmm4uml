@@ -10,5 +10,5 @@ for files in `gfal-ls $dcacheDirIn | grep 2016`
 do
   echo $files
   filestocopy=root://t3se01.psi.ch:1094/pnfs/psi.ch/cms/trivcat/store/user/ursl/bmm4/small/180428/s01/$files;
-  xrdcp $filestocopy .
+  xrdcp $filestocopy input/bmm4/
 done
