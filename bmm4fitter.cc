@@ -1328,6 +1328,14 @@ void BuildSignalMassPDF(RooWorkspace* wspace, TString key, int flavour, RooDataS
     RooRealVar Enne(Form("Enne_%s",key.Data()), "", 1., 0., 10.);
     RooRealVar PeeK(Form("PeeK_%s",key.Data()), "", 1., 0.1, 10.);
     
+       double resolution;
+       for (auto& cat: CatMan.cats) {
+        if (cat.era =="2016GH")
+        if (flavour==_bs_signal) resolution = 0.8111224;
+        if (flavour==_bd_signal) resolution = 0.84324;
+         PeeK.setVal(resolution);
+      }
+  
     RooFormulaVar SigmaRes(Form("SigmaRes_%s",key.Data()), "@0*@1*@2", RooArgList(*ReducedMassRes, *Mass, PeeK));
     
     RooCBShape CB(Form("CB_%s",key.Data()), "", *Mass, Mean, SigmaRes, Alpha, Enne);
