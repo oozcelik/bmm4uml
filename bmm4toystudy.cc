@@ -1384,6 +1384,11 @@ void bmm4toystudy(TString commands = "")
         TFile *fin_gen = new TFile(file_gen);
         RooWorkspace *wspace_gen = (RooWorkspace *)fin_gen->Get("wspace");
         
+        wspace_gen->var("PeeK_bs_2016GHs01_0_0")->setVal(wspace_gen->var("PeeK_bs_2016GHs01_0_0")->getVal()*0.794);
+        wspace_gen->var("PeeK_bs_2016GHs01_1_0")->setVal(wspace_gen->var("PeeK_bs_2016GHs01_1_0")->getVal()*0.692);
+        wspace_gen->var("PeeK_bd_2016GHs01_0_0")->setVal(wspace_gen->var("PeeK_bd_2016GHs01_0_0")->getVal()*0.806);
+        wspace_gen->var("PeeK_bd_2016GHs01_1_0")->setVal(wspace_gen->var("PeeK_bd_2016GHs01_1_0")->getVal()*0.696);
+        
         // parameter modifications (gen workspace)
         for (int idx = 0; idx<(int)set_genpar_names.size(); idx++) {
             cout << ">>> set gen parameter " << set_genpar_names[idx] << " to " << set_genpar_values[idx] << (set_genpar_states[idx]?" (fixed)":" (floated)") << endl;
