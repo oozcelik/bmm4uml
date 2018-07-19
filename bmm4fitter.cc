@@ -69,6 +69,7 @@ void PrepareGlobalVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
         wspace->import(*wspace_base->var("dblmu_corr_scale"));
         wspace->import(*wspace_base->pdf("one_over_BRBR_gau"));
         wspace->import(*wspace_base->pdf("fs_over_fu_gau"));
+        wspace->import(*wspace_base->pdf("fs_over_fu_S13_gau"));
         wspace->import(*wspace_base->var("EffTau_bs"));
         wspace->import(*wspace_base->var("EffTau_bd"));
         return;
@@ -78,33 +79,44 @@ void PrepareGlobalVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     vector<TString> keys;
     vector<double> values;
-    vector<double> errors;
     
-    keys.push_back("fsfu");
-    keys.push_back("BuToKpsiK");
-    keys.push_back("JpsiToMuMu");
-    keys.push_back("Bs2MuMu_BF");
-    keys.push_back("Bd2MuMu_BF");
+    keys.push_back("fsfu:val");
+    keys.push_back("fsfu:err");
+    keys.push_back("fsfu_S13:val");
+    keys.push_back("fsfu_S13:err");
+    keys.push_back("BF_BuToKpsiK:val");
+    keys.push_back("BF_BuToKpsiK:err");
+    keys.push_back("BF_JpsiToMuMu:val");
+    keys.push_back("BF_JpsiToMuMu:err");
+    keys.push_back("BF_BsToMuMu:val");
+    keys.push_back("BF_BdToMuMu:val");
+    keys.push_back("EffTau_BsToMuMu:val");
+    keys.push_back("EffTau_BdToMuMu:val");
     
     enum {
-        _fsfu, _BF_bu2jpsik, _BF_jpsi2mumu,
-        _BF_bs, _BF_bd
+        _fsfu, _fsfu_err,
+        _fsfu_S13, _fsfu_S13_err,
+        _BF_bu2jpsik, _BF_bu2jpsik_err,
+        _BF_jpsi2mumu, _BF_jpsi2mumu_err,
+        _BF_bs2mumu, _BF_bd2mumu,
+        _EffTau_bs2mumu, _EffTau_bd2mumu
     };
     
-    ReadValuesFromPlainText("input/external_numbers.txt",keys,values,errors);
+    ReadValuesFromTex("input/external_parameters.tex",keys,values);
     
-    RooRealVar BF_bs("BF_bs", "", values[_BF_bs], 0., 1e-8);
-    RooRealVar BF_bd("BF_bd", "", values[_BF_bd], 0., 1e-8);
+    RooRealVar BF_bs("BF_bs", "", values[_BF_bs2mumu], 0., 1e-8);
+    RooRealVar BF_bd("BF_bd", "", values[_BF_bd2mumu], 0., 1e-8);
     
     wspace->import(BF_bs);
     wspace->import(BF_bd);
     
     double one_over_BRBR_val = 1./ (values[_BF_bu2jpsik] * values[_BF_jpsi2mumu]);
     double one_over_BRBR_err = one_over_BRBR_val *
-        sqrt(pow(errors[_BF_bu2jpsik]/values[_BF_bu2jpsik],2) + pow(errors[_BF_jpsi2mumu]/values[_BF_jpsi2mumu],2));
+        sqrt(pow(values[_BF_bu2jpsik_err]/values[_BF_bu2jpsik],2) + pow(values[_BF_jpsi2mumu_err]/values[_BF_jpsi2mumu],2));
 
     BuildGaussianConstaint(wspace, "one_over_BRBR", one_over_BRBR_val, one_over_BRBR_err);
-    BuildGaussianConstaint(wspace, "fs_over_fu", values[_fsfu], errors[_fsfu]);
+    BuildGaussianConstaint(wspace, "fs_over_fu", values[_fsfu], values[_fsfu_err]);
+    BuildGaussianConstaint(wspace, "fs_over_fu_S13", values[_fsfu_S13], values[_fsfu_S13_err]);
     
     // Observables
     RooRealVar Mass("Mass", "", Mass_bound[0], Mass_bound[1]);
@@ -147,8 +159,8 @@ void PrepareGlobalVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     PairCat.defineType("cowboy",1);
     wspace->import(PairCat);
     
-    RooRealVar EffTau_bs("EffTau_bs", "", 1.610, 0.1, 5.0); // in unit of ps, PDG: BH: 1.610 +- 0.012 ps / BL: 1.422 +- 0.008 ps
-    RooRealVar EffTau_bd("EffTau_bd", "", 1.520, 0.1, 5.0); // in unit of ps, PDG: 1.520 +- 0.004 ps
+    RooRealVar EffTau_bs("EffTau_bs", "", values[_EffTau_bs2mumu], 0.1, 5.0); // in unit of ps, PDG: BH: 1.610 +- 0.012 ps / BL: 1.422 +- 0.008 ps
+    RooRealVar EffTau_bd("EffTau_bd", "", values[_EffTau_bs2mumu], 0.1, 5.0); // in unit of ps, PDG: 1.520 +- 0.004 ps
     EffTau_bs.setConstant(true);
     EffTau_bd.setConstant(true);
     wspace->import(EffTau_bs);
@@ -162,12 +174,12 @@ void PrepareBMM3SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
     if (wspace_base!=0) {
         cout << ">>> import from existing workspace." << endl;
         for (auto& cat: CatMan.cats) {
-            if (cat.era!="2011" && cat.era!="2012") continue;
+            if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
             wspace->import(*wspace_base->pdf(Form("N_bu_%s_gau",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("effratio_bs_%s_gau",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("effratio_bd_%s_gau",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("N_peak_%s_lnn",cat.id.Data())));
-            wspace->import(*wspace_base->pdf(Form("N_semi_%s_gau",cat.id.Data())));
+            wspace->import(*wspace_base->pdf(Form("N_semi_%s_gau",cat.id.Data()))); // ISSUE: bmm4 takes lnn for semi background
             wspace->import(*wspace_base->pdf(Form("N_h2mu_%s_lnn",cat.id.Data())));
             wspace->import(*wspace_base->var(Form("N_comb_%s",cat.id.Data())));
         }
@@ -177,7 +189,7 @@ void PrepareBMM3SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
     cout << ">>> build variables & constraints." << endl;
     
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         vector<TString> keys;
         vector<double> values;
@@ -335,9 +347,11 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
             wspace->import(*wspace_base->pdf(Form("effratio_bs_%s_gau",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("effratio_bd_%s_gau",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("N_peak_%s_lnn",cat.id.Data())));
-            wspace->import(*wspace_base->pdf(Form("N_semi_%s_gau",cat.id.Data())));
+            wspace->import(*wspace_base->pdf(Form("N_semi_%s_lnn",cat.id.Data())));
             wspace->import(*wspace_base->pdf(Form("N_h2mu_%s_lnn",cat.id.Data())));
             wspace->import(*wspace_base->var(Form("N_comb_%s",cat.id.Data())));
+            wspace->import(*wspace_base->var(Form("DeltaMass_%s",cat.id.Data())));
+            wspace->import(*wspace_base->function(Form("ScaledMass_%s",cat.id.Data())));
         }
         return;
     }
@@ -350,6 +364,14 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
         
         vector<TString> keys;
         vector<double> values;
+        
+        keys.push_back(Form("%s:DeltaMass-chan%d:val",cat.era.Data(),cat.region));
+        ReadValuesFromTex("input/external_parameters.tex",keys,values);
+
+        RooRealVar *Mass = wspace->var("Mass");
+        RooRealVar DeltaMass(Form("DeltaMass_%s", cat.id.Data()), "", values[0]); // data-MC mass difference
+        RooFormulaVar ScaledMass(Form("ScaledMass_%s", cat.id.Data()), "", "@0-@1", RooArgList(*Mass, DeltaMass));
+        wspace->import(ScaledMass);
         
         TString TexSource = Form("input/bmm4/scanBDT-%s.tex",cat.era.Data());
         int bdt_min = (int)(cat.bdt_min*100.);
@@ -369,47 +391,52 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
         
         BuildGaussianConstaint(wspace, Form("N_bu_%s",cat.id.Data()),N_bu.val,N_bu.etot);
         
-        double eff_rel_err = 0.;
-        
-        vector<TString> sys_keys;
-        vector<double> sys_values;
-        vector<double> sys_errors;
-        
-        sys_keys.push_back(Form("Acceptance_%d",0));
-        sys_keys.push_back(Form("MassScale_%d",0));
-        sys_keys.push_back(Form("KaonTrack_%d",0));
-        sys_keys.push_back(Form("Trigger_%d",0));
-        sys_keys.push_back(Form("MuonID_%d",0));
-        
-        enum { _Acceptance, _MassScale, _KaonTrack, _Trigger, _MuonID };
-        
-        ReadValuesFromPlainText("input/external_numbers.txt",sys_keys,sys_values,sys_errors);
-        
-        // ISSUE: take run-I barrel systematics at this moment
-        eff_rel_err += pow(sys_values[_Acceptance],2); //3.5%
-        eff_rel_err += pow(sys_values[_MassScale],2); //0%
-        eff_rel_err += pow(sys_values[_KaonTrack],2); //4%
-        eff_rel_err += pow(sys_values[_Trigger],2); //3%
-        eff_rel_err += pow(sys_values[_MuonID],2); //4.5%
-        
-        /* // ISSUE: no systematics for data vs MC (control channel & normalization) at this moment
-        sys_keys.clear();
-        sys_keys.push_back(Form("relDeltaEpsNoDataNoMcchan%d:val",cat.region));
-        sys_keys.push_back(Form("relDeltaEpsCsDataCsMcchan%d:val",cat.region));
-        
-        enum { _NO_err, _CS_err };
-        
-        ReadValuesFromTex(Form("input/%s/anaBmm.plotReducedOverlays.%s.tex",cat.era.Data(),cat.era.Data()),sys_keys,sys_values);
-        
-        eff_rel_err += pow(sys_values[_NO_err],2);
-        eff_rel_err += pow(sys_values[_CS_err],2);*/
-        
         double effratio_bs = eff_bs.val/eff_bu.val;
         double effratio_bd = eff_bd.val/eff_bu.val;
-        double effratio_bs_err = pow(eff_bs.etot/eff_bs.val,2);
-        double effratio_bd_err = pow(eff_bd.etot/eff_bd.val,2);
+        double effratio_bs_err = pow(eff_bs.estat/eff_bs.val,2);
+        double effratio_bd_err = pow(eff_bd.estat/eff_bd.val,2);
+        
+        double eff_rel_err = 0.; // common relative uncertainties
+        
+        keys.clear();
+        keys.push_back(Form("effmuid4r_systematics:sys")); // muon ID uncertainty for efficiency ratios
+        keys.push_back(Form("efftrig4r_systematics:sys")); // trigger uncertainty for efficiency ratios
+        keys.push_back(Form("efftrack_systematics:sys")); // kaon tracking efficiency
+        keys.push_back(Form("%s:yieldcorr_systematics:sys",cat.era.Data())); // yield instability correction
+        ReadValuesFromTex("input/external_parameters.tex",keys,values);
+        
+        eff_rel_err += pow(values[0],2); // muon ID
+        eff_rel_err += pow(values[1],2); // trigger
+        eff_rel_err += pow(values[2],2); // kaon
+        eff_rel_err += pow(values[3],2); // yield instability
+        
+        keys.clear();
+        keys.push_back(Form("%s:acceptance_systematics_chan%d:sys",cat.era.Data(),cat.region)); // acceptance
+        keys.push_back(Form("%s:effana4r_systematics_chan%d:sys",cat.era.Data(),cat.region)); // analysis efficiency
+        keys.push_back(Form("%s:effcandbupsik_systematics_chan%d:sys",cat.era.Data(),cat.region)); // candidate selection: B+->J/psiK+
+        keys.push_back(Form("%s:effcandbsmm_systematics_chan%d:sys",cat.era.Data(),cat.region)); // candidate selection: Bs->mumu
+        keys.push_back(Form("%s:effcandbdmm_systematics_chan%d:sys",cat.era.Data(),cat.region)); // candidate selection: Bd->mumu
+        ReadValuesFromTex(Form("input/bmm4/plotSystematics.%s.tex",cat.era.Data()),keys,values);
+        
+        eff_rel_err += pow(values[0],2); // acceptance
+        eff_rel_err += pow(values[1],2); // analysis efficiency
+        eff_rel_err += pow(values[2],2); // B+->J/psiK+ candidate
+        
         effratio_bs_err += eff_rel_err;
         effratio_bd_err += eff_rel_err;
+        
+        effratio_bs_err += pow(values[3],2); // Bs->mumu candidate
+        effratio_bd_err += pow(values[4],2); // Bd->mumu candidate
+        
+        // Adding effective lifetime correction on efficiencies & errors
+        keys.clear();
+        keys.push_back(Form("%s:effTau_efficienecy_correction:val",cat.id.Data())); // correction factor
+        keys.push_back(Form("%s:effTau_efficienecy_correction:sys",cat.id.Data())); // systematic uncertainty
+        ReadValuesFromTex(binsetup_parameter,keys,values);
+        effratio_bs *= values[0];
+        effratio_bs_err += pow(values[1],2);
+        
+        // convert relative error to absolute error
         effratio_bs_err = sqrt(effratio_bs_err)*effratio_bs;
         effratio_bd_err = sqrt(effratio_bd_err)*effratio_bd;
         
@@ -430,10 +457,6 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
             N_peak.AddVar(var);
         }
         
-        if (N_peak.etot<N_peak.val*0.5) { // ISSUE: hot fix for too small uncertainty?
-            N_peak.etot = N_peak.val*0.5;
-        }
-        
         BuildLognormalConstaint(wspace, Form("N_peak_%s",cat.id.Data()),N_peak.val,1.+N_peak.etot/N_peak.val);
         
         // semileptonic background
@@ -450,11 +473,7 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
             N_semi.AddVar(var);
         }
         
-        if (N_semi.etot<N_semi.val*0.5) { // ISSUE: hot fix for too small uncertainty?
-            N_semi.etot = N_semi.val*0.5;
-        }
-        
-        BuildGaussianConstaint(wspace, Form("N_semi_%s",cat.id.Data()),N_semi.val,N_semi.etot);
+        BuildLognormalConstaint(wspace, Form("N_semi_%s",cat.id.Data()),N_semi.val,1.+N_semi.etot/N_semi.val);
         
         // h2mu background
         TexVar N_h2mu;
@@ -468,10 +487,6 @@ void PrepareBMM4SubVariables(RooWorkspace* wspace, RooWorkspace* wspace_base = 0
             }
             cout << ">>> Expected yield for " << cat.id << ": " << bmm4::texlabels[idx_sample] << ": " << var.val << " +- " << var.estat << " +- " << var.esyst << endl;
             N_h2mu.AddVar(var);
-        }
-        
-        if (N_h2mu.etot<N_h2mu.val*0.5) { // ISSUE: hot fix for too small uncertainty?
-            N_h2mu.etot = N_h2mu.val*0.5;
         }
         
         BuildLognormalConstaint(wspace, Form("N_h2mu_%s",cat.id.Data()),N_h2mu.val,1.+N_h2mu.etot/N_h2mu.val);
@@ -636,13 +651,11 @@ void PrepareData(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     RooArgSet varlist(*Mass,*ReducedMassRes,*BDT,*Tau,*TauRes,*SelCat,*PairCat,*GlobalCat);
     
     RooAbsData *global_data = new RooDataSet("global_data", "", varlist);
-    if (CONFIG_BMM3) {
+/*    if (CONFIG_BMM3) {
         LoadDataFromBMM3Tree(wspace, global_data, "input/2011/small-SgData-unblinded.root", "2011");
         LoadDataFromBMM3Tree(wspace, global_data, "input/2012/small-SgData-unblinded.root", "2012");
-    }
+    }*/
     if (CONFIG_BMM4) {
-        LoadDataFromBMM4Tree(wspace, global_data, "input/bmm4/small2011s01-bmmData.root", "2011s01");
-        LoadDataFromBMM4Tree(wspace, global_data, "input/bmm4/small2012s01-bmmData.root", "2012s01");
         LoadDataFromBMM4Tree(wspace, global_data, "input/bmm4/small2016BFs01-bmmData.root", "2016BFs01");
         LoadDataFromBMM4Tree(wspace, global_data, "input/bmm4/small2016GHs01-bmmData.root", "2016GHs01");
     }
@@ -652,7 +665,7 @@ void PrepareData(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
 
 // ----------------------------------------------------
 // Prepare the resolution functions for lifetime fit
-// current model: double-Gaussian, with <taue> as the main scaling factor
+// current model: double-Gaussian, with <taue> as the main scaling factor; error on <taue> has been set to 12%
 // available options:
 // bsmm      - build B->mumu resolution model
 // bupsik    - build B->J/psi K+ resolution model
@@ -785,6 +798,9 @@ void PrepareLifetimeResolutionModel(RooWorkspace *wspace, TString opt = "bsmm:tr
     RooGaussian model_g1("model_g1","",delTau,par_smean,par_ssig1);
     RooGaussian model_g2("model_g2","",delTau,par_smean,par_ssig2);
     RooGaussian model_g3("model_g3","",delTau,par_smean,par_ssig3);
+    
+    // set the taue error to 12%, which is the maximum difference between J/psi K+ data and MC in difference era
+    par_taue.setError(mean_taue*0.12);
     
     RooAddPdf *model = 0;
     if (opt.Contains("triple"))
@@ -1182,7 +1198,6 @@ void PrepareLifetimeEfficiencyModel(RooWorkspace *wspace, TString opt = "bsmm:th
 void PrepareLifetimeModel(RooWorkspace *wspace, RooWorkspace* wspace_base = 0)
 {
     PrepareLifetimeResolutionModel(wspace, "bsmm:triple", "mix", wspace_base);
-    //PrepareLifetimeEfficiencyModel(wspace, "bsmm:one_over_exp", "mix", wspace_base);
     PrepareLifetimeEfficiencyModel(wspace, "bsmm:threshold", "mix", wspace_base);
     
     for (auto& cat: CatMan.cats) {
@@ -1247,12 +1262,23 @@ void BuildBDTPDF(RooWorkspace* wspace, TString key, RooDataSet *rds)
     wspace->import(model);
 }
 
+// ----------------------------------------------------
+// available options:
+// single       - signal exponetial decay
+// double       - double exponetial decay
+// --
+// hist         - take the histogram efficiency function
+//
 void BuildDecayTimePDF(RooWorkspace* wspace, TString key, TString target_cat, RooDataSet *rds, TString opt = "single", RooRealVar *EffTauCommon = 0)
 {
     RooRealVar* Tau = wspace->var("Tau");
     
     RooResolutionModel *TauRes_Model = (RooResolutionModel*)wspace->obj(Form("TauRes_Model_bsmm_%s",target_cat.Data()));
     RooFormulaVar *TauEff_Model = (RooFormulaVar*)wspace->obj(Form("TauEff_Model_bsmm_%s",target_cat.Data()));
+    
+    if (opt.Contains("hist")) { // histogram efficiency
+        TauEff_Model = (RooFormulaVar*)wspace->obj(Form("TauEff_Model_Hist_bsmm_%s",target_cat.Data()));
+    }
     
     if (opt.Contains("single")) { // single Exp
         RooRealVar EffTau(Form("EffTau_%s",key.Data()),"",1.6,0.1,5.0);
@@ -1315,9 +1341,15 @@ enum{_bs_signal, _bd_signal};
 
 void BuildSignalMassPDF(RooWorkspace* wspace, TString key, int flavour, RooDataSet *rds)
 {
-    RooRealVar* Mass = wspace->var("Mass");
+    //RooRealVar* Mass = wspace->var("Mass");
     RooRealVar* ReducedMassRes = wspace->var("ReducedMassRes");
     RooAbsPdf* ReducedMassRes_pdf = wspace->pdf(Form("ReducedMassRes_pdf_%s",key.Data()));
+    
+    TString id = key(key.First('_')+1,key.Length());
+    RooRealVar* DeltaMass = wspace->var(Form("DeltaMass_%s",id.Data()));
+    RooFormulaVar* ScaledMass = (RooFormulaVar*)wspace->function(Form("ScaledMass_%s",id.Data()));
+    double DeltaMass_reserve = DeltaMass->getVal();
+    DeltaMass->setVal(0.);
     
     double mean_init = 0.;
     if (flavour==_bs_signal) mean_init = 5.35;
@@ -1328,19 +1360,11 @@ void BuildSignalMassPDF(RooWorkspace* wspace, TString key, int flavour, RooDataS
     RooRealVar Enne(Form("Enne_%s",key.Data()), "", 1., 0., 10.);
     RooRealVar PeeK(Form("PeeK_%s",key.Data()), "", 1., 0.1, 10.);
     
-       double resolution;
-       for (auto& cat: CatMan.cats) {
-        if (cat.era =="2016GH")
-        if (flavour==_bs_signal) resolution = 0.8111224;
-        if (flavour==_bd_signal) resolution = 0.84324;
-         PeeK.setVal(resolution);
-      }
-  
-    RooFormulaVar SigmaRes(Form("SigmaRes_%s",key.Data()), "@0*@1*@2", RooArgList(*ReducedMassRes, *Mass, PeeK));
+    RooFormulaVar SigmaRes(Form("SigmaRes_%s",key.Data()), "@0*@1*@2", RooArgList(*ReducedMassRes, *ScaledMass, PeeK));
     
-    RooCBShape CB(Form("CB_%s",key.Data()), "", *Mass, Mean, SigmaRes, Alpha, Enne);
+    RooCBShape CB(Form("CB_%s",key.Data()), "", *ScaledMass, Mean, SigmaRes, Alpha, Enne);
     
-    RooProdPdf Mass_pdf(Form("Mass_pdf_%s",key.Data()), "", *ReducedMassRes_pdf, Conditional(CB, *Mass));
+    RooProdPdf Mass_pdf(Form("Mass_pdf_%s",key.Data()), "", *ReducedMassRes_pdf, Conditional(CB, *ScaledMass));
     
     RooFitResult *res = Mass_pdf.fitTo(*rds, ConditionalObservables(*ReducedMassRes), Extended(false), SumW2Error(true), NumCPU(NCPU), Hesse(false), Save(true));
     if (res->status()!=0) converge_protection();
@@ -1350,6 +1374,8 @@ void BuildSignalMassPDF(RooWorkspace* wspace, TString key, int flavour, RooDataS
     Alpha.setConstant(true);
     Enne.setConstant(true);
     PeeK.setConstant(true);
+    
+    DeltaMass->setVal(DeltaMass_reserve);
     
     wspace->import(Mass_pdf);
 }
@@ -1418,9 +1444,15 @@ void BuildH2muMassPDF(RooWorkspace* wspace, TString key, RooDataSet *rds)
 
 void BuildPeakMassPDF(RooWorkspace* wspace, TString key, RooDataSet *rds)
 {
-    RooRealVar* Mass = wspace->var("Mass");
+    //RooRealVar* Mass = wspace->var("Mass");
     RooRealVar* ReducedMassRes = wspace->var("ReducedMassRes");
     RooAbsPdf* ReducedMassRes_pdf = wspace->pdf(Form("ReducedMassRes_pdf_%s",key.Data()));
+    
+    TString id = key(key.First('_')+1,key.Length());
+    RooRealVar* DeltaMass = wspace->var(Form("DeltaMass_%s",id.Data()));
+    RooFormulaVar* ScaledMass = (RooFormulaVar*)wspace->function(Form("ScaledMass_%s",id.Data()));
+    double DeltaMass_reserve = DeltaMass->getVal();
+    DeltaMass->setVal(0.);
     
     RooRealVar Mean(Form("Mean_%s",key.Data()), "", 5.1, 4.9, 5.4);
     RooRealVar Sigma(Form("Sigma_%s",key.Data()), "", 0.02, 0.005, 0.2);
@@ -1429,12 +1461,16 @@ void BuildPeakMassPDF(RooWorkspace* wspace, TString key, RooDataSet *rds)
     RooRealVar Enne(Form("Enne_%s",key.Data()), "", 1., 0., 10.);
     RooRealVar CoeffGauss(Form("CoeffGauss_%s",key.Data()), "", 0.5, 0., 1.);
     
-    RooGaussian Gauss(Form("Gauss_%s",key.Data()), "", *Mass, Mean, Sigma);
-    RooCBShape CB(Form("CB_%s",key.Data()), "", *Mass, Mean, Sigma2, Alpha, Enne);
+    RooGaussian Gauss(Form("Gauss_%s",key.Data()), "", *ScaledMass, Mean, Sigma);
+    
+    // add a prefit to stablize the fit
+    Gauss.fitTo(*rds, Extended(false), SumW2Error(true), NumCPU(NCPU), Hesse(false));
+    
+    RooCBShape CB(Form("CB_%s",key.Data()), "", *ScaledMass, Mean, Sigma2, Alpha, Enne);
     
     RooAddPdf CBPlusGau(Form("CBPlusGau_%s",key.Data()), "", RooArgList(Gauss, CB),  CoeffGauss);
 
-    RooProdPdf Mass_pdf(Form("Mass_pdf_%s",key.Data()), "", *ReducedMassRes_pdf, Conditional(CBPlusGau, *Mass));
+    RooProdPdf Mass_pdf(Form("Mass_pdf_%s",key.Data()), "", *ReducedMassRes_pdf, Conditional(CBPlusGau, *ScaledMass));
     
     RooFitResult *res = Mass_pdf.fitTo(*rds, ConditionalObservables(*ReducedMassRes), Extended(false), SumW2Error(true), NumCPU(NCPU), Hesse(false), Save(true));
     if (res->status()!=0) converge_protection();
@@ -1446,6 +1482,8 @@ void BuildPeakMassPDF(RooWorkspace* wspace, TString key, RooDataSet *rds)
     Alpha.setConstant(true);
     Enne.setConstant(true);
     CoeffGauss.setConstant(true);
+    
+    DeltaMass->setVal(DeltaMass_reserve);
     
     wspace->import(Mass_pdf);
 }
@@ -1586,7 +1624,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     if (wspace_base!=0) {
         cout << ">>> import from existing workspace." << endl;
         for (auto& cat: CatMan.cats) {
-            if (cat.era!="2011" && cat.era!="2012") continue;
+            if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
             for (TString type : {"Mass","BDT","PairCat","Tau","SelCat"}) {
                 wspace->import(*wspace_base->pdf(Form("%s_pdf_bs_%s",type.Data(),cat.id.Data())),RecycleConflictNodes());
                 wspace->import(*wspace_base->pdf(Form("%s_pdf_bd_%s",type.Data(),cat.id.Data())),RecycleConflictNodes());
@@ -1630,7 +1668,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     // read the expected yields from data cards
     for (int idx_sample=bmm3::_bgBs2KK; idx_sample<=bmm3::_bgBs2MuMuGamma; idx_sample++) {
         for (auto& cat: CatMan.cats) {
-            if (cat.era!="2011" && cat.era!="2012") continue;
+            if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
             
             vector<TString> keys;
             vector<double> values;
@@ -1770,7 +1808,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     // build ReducedMassRes PDF
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         RooDataSet *rds_bs_res = (RooDataSet*)rds_bs->reduce(RooArgSet(*ReducedMassRes,*SpCat),Form("GlobalCat==%d",cat.index));
         RooDataSet *rds_bd_res = (RooDataSet*)rds_bd->reduce(RooArgSet(*ReducedMassRes,*SpCat),Form("GlobalCat==%d",cat.index));
@@ -1803,7 +1841,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     // build BDT PDF
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         RooDataSet *rds_bs_bdt = (RooDataSet*)rds_bs->reduce(RooArgSet(*BDT,*SpCat),Form("GlobalCat==%d",cat.index));
         RooDataSet *rds_bd_bdt = (RooDataSet*)rds_bd->reduce(RooArgSet(*BDT,*SpCat),Form("GlobalCat==%d",cat.index));
@@ -1836,7 +1874,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     // build decay time PDFs
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         RooDataSet *rds_bs_tau = (RooDataSet*)rds_bs->reduce(RooArgSet(*Tau,*SpCat),Form("SelCat==1&&GlobalCat==%d",cat.index));
         RooDataSet *rds_bd_tau = (RooDataSet*)rds_bd->reduce(RooArgSet(*Tau,*SpCat),Form("SelCat==1&&GlobalCat==%d",cat.index));
@@ -1902,7 +1940,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     // build pair category PDFs
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         BuildPairCategoryPDF(wspace, Form("bs_%s",cat.id.Data()));
         BuildPairCategoryPDF(wspace, Form("bd_%s",cat.id.Data()));
@@ -1914,7 +1952,7 @@ void PrepareBMM3SubPDF(RooWorkspace* wspace, RooWorkspace* wspace_base = 0)
     
     // build mass PDFs
     for (auto& cat: CatMan.cats) {
-        if (cat.era!="2011" && cat.era!="2012") continue;
+        if (!cat.era.Contains("2011") && !cat.era.Contains("2012")) continue;
         
         // Bs->mumu
         RooDataSet *rds_bs_reduced = (RooDataSet*)rds_bs->reduce(RooArgSet(*Mass,*ReducedMassRes,*SpCat),Form("GlobalCat==%d",cat.index));
@@ -2344,6 +2382,7 @@ void PrepareGlobalPDF(RooWorkspace* wspace, TString opt = "bdtcat")
     RooRealVar *BF_bd = wspace->var("BF_bd");
     RooRealVar *one_over_BRBR = wspace->var("one_over_BRBR");
     RooRealVar *fs_over_fu = wspace->var("fs_over_fu");
+    RooRealVar *fs_over_fu_S13 = wspace->var("fs_over_fu_S13");
     RooRealVar *dblmu_corr_scale = wspace->var("dblmu_corr_scale");
     RooCategory *GlobalCat = wspace->cat("GlobalCat");
     
@@ -2375,8 +2414,12 @@ void PrepareGlobalPDF(RooWorkspace* wspace, TString opt = "bdtcat")
         RooRealVar *effratio_bs = wspace->var(Form("effratio_bs_%s", cat.id.Data()));
         RooRealVar *effratio_bd = wspace->var(Form("effratio_bd_%s", cat.id.Data()));
         
-        N_bs_formula[cat.index] = new RooFormulaVar(Form("N_bs_formula_%s", cat.id.Data()), "", "@0*@1*@2*@3*@4",
-                                                  RooArgList(*BF_bs, *N_bu, *fs_over_fu, *effratio_bs, *one_over_BRBR));
+        if (cat.era.Contains("2016"))
+            N_bs_formula[cat.index] = new RooFormulaVar(Form("N_bs_formula_%s", cat.id.Data()), "", "@0*@1*@2*@3*@4*@5",
+                                                        RooArgList(*BF_bs, *N_bu, *fs_over_fu, *fs_over_fu_S13, *effratio_bs, *one_over_BRBR));
+        else
+            N_bs_formula[cat.index] = new RooFormulaVar(Form("N_bs_formula_%s", cat.id.Data()), "", "@0*@1*@2*@3*@4",
+                                                        RooArgList(*BF_bs, *N_bu, *fs_over_fu, *effratio_bs, *one_over_BRBR));
         N_bd_formula[cat.index] = new RooFormulaVar(Form("N_bd_formula_%s", cat.id.Data()), "", "@0*@1*@2*@3",
                                                   RooArgList(*BF_bd, *N_bu, *effratio_bd, *one_over_BRBR));
         
@@ -2407,7 +2450,7 @@ void PrepareGlobalPDF(RooWorkspace* wspace, TString opt = "bdtcat")
         RooArgList constraints_list;
         constraints_list.add(*wspace->pdf(Form("N_bu_%s_gau", cat.id.Data())));
         constraints_list.add(*wspace->pdf(Form("N_peak_%s_lnn", cat.id.Data())));
-        constraints_list.add(*wspace->pdf(Form("N_semi_%s_gau", cat.id.Data())));
+        constraints_list.add(*wspace->pdf(Form("N_semi_%s_lnn", cat.id.Data())));
         constraints_list.add(*wspace->pdf(Form("N_h2mu_%s_lnn", cat.id.Data())));
         constraints_list.add(*wspace->pdf(Form("effratio_bs_%s_gau", cat.id.Data())));
         constraints_list.add(*wspace->pdf(Form("effratio_bd_%s_gau", cat.id.Data())));
@@ -2431,6 +2474,7 @@ void PrepareNamedArgSets(RooWorkspace* wspace)
     RooArgSet all_nuisances;
     
     all_nuisances.add(*wspace->var("fs_over_fu"));
+    all_nuisances.add(*wspace->var("fs_over_fu_S13"));
     all_nuisances.add(*wspace->var("one_over_BRBR"));
     
     for (auto& cat: CatMan.cats) {
@@ -2472,14 +2516,14 @@ void PrepareNamedArgSets(RooWorkspace* wspace)
 
         RooRealVar *N_bu_sigma = wspace->var(Form("N_bu_%s_sigma", cat.id.Data()));
         RooRealVar *N_peak_kappa = wspace->var(Form("N_peak_%s_kappa", cat.id.Data()));
-        RooRealVar *N_semi_sigma = wspace->var(Form("N_semi_%s_sigma", cat.id.Data()));
+        RooRealVar *N_semi_kappa = wspace->var(Form("N_semi_%s_kappa", cat.id.Data()));
         RooRealVar *N_h2mu_kappa = wspace->var(Form("N_h2mu_%s_kappa", cat.id.Data()));
         
         RooRealVar *N_comb = wspace->var(Form("N_comb_%s", cat.id.Data()));
         
         cout << ">>> N_bu:   mu = " << N_bu_mean->getVal() << ", sigma = " << N_bu_sigma->getVal() << endl;
         cout << ">>> N_peak: mu = " << N_peak_mean->getVal() << ", kappa = " << N_peak_kappa->getVal() << endl;
-        cout << ">>> N_semi: mu = " << N_semi_mean->getVal() << ", sigma = " << N_semi_sigma->getVal() << endl;
+        cout << ">>> N_semi: mu = " << N_semi_mean->getVal() << ", kappa = " << N_semi_kappa->getVal() << endl;
         cout << ">>> N_h2mu: mu = " << N_h2mu_mean->getVal() << ", kappa = " << N_h2mu_kappa->getVal() << endl;
         cout << ">>> N_bs:   mu = " << N_bs_formula->getVal() << endl;
         cout << ">>> N_bd:   mu = " << N_bd_formula->getVal() << endl;
@@ -2494,10 +2538,10 @@ void ProduceSubPlots(RooWorkspace *wspace)
     for (auto& cat: CatMan.cats) {
         
         TString title_base;
-        if (cat.era == "2011" && cat.region == 0) title_base = "CMS - L = 5 fb^{-1} #sqrt{s} = 7 TeV - 2011 Barrel";
-        if (cat.era == "2011" && cat.region == 1) title_base = "CMS - L = 5 fb^{-1} #sqrt{s} = 7 TeV - 2011 Endcap";
-        if (cat.era == "2012" && cat.region == 0) title_base = "CMS - L = 20 fb^{-1} #sqrt{s} = 8 TeV - 2012 Barrel";
-        if (cat.era == "2012" && cat.region == 1) title_base = "CMS - L = 20 fb^{-1} #sqrt{s} = 8 TeV - 2012 Endcap";
+        if (cat.era.Contains("2011") && cat.region == 0) title_base = "CMS - L = 5 fb^{-1} #sqrt{s} = 7 TeV - 2011 Barrel";
+        if (cat.era.Contains("2011") && cat.region == 1) title_base = "CMS - L = 5 fb^{-1} #sqrt{s} = 7 TeV - 2011 Endcap";
+        if (cat.era.Contains("2012") && cat.region == 0) title_base = "CMS - L = 20 fb^{-1} #sqrt{s} = 8 TeV - 2012 Barrel";
+        if (cat.era.Contains("2012") && cat.region == 1) title_base = "CMS - L = 20 fb^{-1} #sqrt{s} = 8 TeV - 2012 Endcap";
         if (cat.era.Contains("2016BF")) title_base = Form("CMS - L = 36 fb^{-1} #sqrt{s} = 13 TeV - 2016 B-F Channel %d",cat.region);
         if (cat.era.Contains("2016GH")) title_base = Form("CMS - L = 36 fb^{-1} #sqrt{s} = 13 TeV - 2016 G-H Channel %d",cat.region);
         
@@ -2602,7 +2646,7 @@ void ProduceSubPlots(RooWorkspace *wspace)
     }
 }
 
-void ProduceTauSPlot(RooWorkspace *wspace)
+void ProduceTauSPlot(RooWorkspace *wspace, bool sys_study = false)
 {
     cout << ">>> ProduceTauSPlot() start" << endl;
     
@@ -2615,144 +2659,276 @@ void ProduceTauSPlot(RooWorkspace *wspace)
         h_tau[idx]->Sumw2();
     }
     
-    //vector<TH1D*> h_tau_sys; // for Bs only
-    //const RooArgSet *all_floats = wspace->set("all_floats");
-    //h_tau_sys.assign(all_floats->getSize()*2,NULL);
-    //for (int idx = 0; idx < all_floats->getSize()*2; idx++) {
-    //    h_tau_sys[idx] = new TH1D(Form("h_tau_sys_%03d",idx), "", Tau_bins.size()-1, Tau_bins.data());
-    //    h_tau_sys[idx]->Sumw2();
-    //}
+    RooFitResult *res1 = NULL, *res2 = NULL;
     
-    double yield_total[_nspec];
-    for (int idx = 0; idx < _nspec; idx++) yield_total[idx] = 0.;
+    vector<TH1D*> h_tau_sys;
+    vector<double> diff_tau_sys;
+    vector<TString> cmd_tau_sys;
     
-    for (auto& cat: CatMan.cats) {
-        
-        RooRealVar *Mass = wspace->var("Mass");
-        RooRealVar *ReducedMassRes = wspace->var("ReducedMassRes");
-        RooCategory *PairCat = wspace->cat("PairCat");
-        RooArgSet norm(*Mass,*ReducedMassRes,*PairCat);
-        
-        double yield[_nspec];
-        yield[_bs]   = wspace->function(Form("N_bs_formula_%s",cat.id.Data()))->getVal();
-        yield[_bd]   = wspace->function(Form("N_bd_formula_%s",cat.id.Data()))->getVal();
-        yield[_peak] = wspace->function(Form("N_peak_formula_%s",cat.id.Data()))->getVal();
-        yield[_semi] = wspace->function(Form("N_semi_formula_%s",cat.id.Data()))->getVal();
-        yield[_h2mu] = wspace->var(Form("N_h2mu_%s",cat.id.Data()))->getVal();
-        yield[_comb] = wspace->var(Form("N_comb_%s",cat.id.Data()))->getVal();
-        for (int idx = 0; idx < _nspec; idx++) yield_total[idx] += yield[idx];
-        
-        TMatrixD covInv(_nspec, _nspec);
-        covInv = 0.;
-        
-        for (int evt=0; evt<wspace->data("global_data")->numEntries(); evt++) {
-            const RooArgSet* arg = wspace->data("global_data")->get(evt);
-            if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
-            
-            Mass->setVal(arg->getRealValue("Mass"));
-            ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
-            PairCat->setIndex(arg->getCatIndex("PairCat"));
-            
-            double pdf[_nspec];
-            for (int idx = 0; idx<_nspec; idx++)
-                pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
-            
-            double pdf_total = 0.;
-            for (int idx = 0; idx<_nspec; idx++) pdf_total += yield[idx]*pdf[idx];
-            
-            for (int row = 0; row<_nspec; row++)
-                for (int col = 0; col<_nspec; col++)
-                    covInv(row,col) += pdf[row]*pdf[col]/(pdf_total*pdf_total);
+    if (sys_study) {
+        cmd_tau_sys.push_back(Form("0HistEffModel"));
+        cmd_tau_sys.push_back(Form("+respar_bsmm_mix_taue"));
+        cmd_tau_sys.push_back(Form("-respar_bsmm_mix_taue"));
+        cmd_tau_sys.push_back(Form("+fs_over_fu_S13"));
+        cmd_tau_sys.push_back(Form("-fs_over_fu_S13"));
+        for (auto& cat: CatMan.cats) {
+            cmd_tau_sys.push_back(Form("+N_bu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_bu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+effratio_bs_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-effratio_bs_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+effratio_bd_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-effratio_bd_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_semi_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_semi_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_h2mu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_h2mu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_peak_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_peak_%s", cat.id.Data()));
         }
         
-        TMatrixD covMatrix(TMatrixD::kInverted,covInv);
+        h_tau_sys.assign(cmd_tau_sys.size(),NULL);
+        diff_tau_sys.assign(cmd_tau_sys.size(),0.);
+        for (int sysidx = 0; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
+            h_tau_sys[sysidx] = new TH1D(Form("h_tau_sys_%03d",sysidx), "", Tau_bins.size()-1, Tau_bins.data());
+            h_tau_sys[sysidx]->Sumw2();
+        }
+    }
+    
+    for (int sysidx = -1; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
         
-        double weight_total[_nspec];
-        for (int idx = 0; idx < _nspec; idx++) weight_total[idx] = 0.;
+        if (!sys_study && sysidx>=0) break; // skip nuisances variations
         
-        for (int evt=0; evt<wspace->data("global_data")->numEntries(); evt++) {
-            const RooArgSet* arg = wspace->data("global_data")->get(evt);
-            if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
-            if (arg->getCatIndex("SelCat")!=1) continue;
+        double nuisance_preserve = 0.;
+        if (sysidx>=0) {
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
             
-            Mass->setVal(arg->getRealValue("Mass"));
-            ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
-            PairCat->setIndex(arg->getCatIndex("PairCat"));
-            
-            double pdf[_nspec];
-            for (int idx = 0; idx<_nspec; idx++)
-                pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
-            
-            double denominator = 0.;
-            for (int idx = 0; idx<_nspec; idx++) denominator += yield[idx]*pdf[idx];
-            
-            for (int target_spec = 0; target_spec<_nspec; target_spec++) {
-                double numerator = 0.;
-                for (int idx = 0; idx<_nspec; idx++) numerator += covMatrix(target_spec,idx)*pdf[idx];
-                
-                double weight = numerator/denominator;
-                h_tau[target_spec]->Fill(arg->getRealValue("Tau"),weight);
-                weight_total[target_spec] += weight;
+            // Take post-fit nuisance variation
+            if (var!="0") {
+                RooRealVar *nuisance = wspace->var(key);
+                nuisance_preserve = nuisance->getVal();
+                if (var=="-") nuisance->setVal(nuisance_preserve-nuisance->getError());
+                if (var=="+") nuisance->setVal(nuisance_preserve+nuisance->getError());
             }
         }
-        cout << ">>> sPlot check sum for bin: " << cat.id << endl;
-        for (int idx = 0; idx<_nspec; idx++)
-            cout << ">>> Spec " << specs[idx] << ": " << weight_total[idx] << " / " << yield[idx] << endl;
-    }
+        
+        for (auto& cat: CatMan.cats) {
+            
+            RooRealVar *Mass = wspace->var("Mass");
+            RooRealVar *ReducedMassRes = wspace->var("ReducedMassRes");
+            RooCategory *PairCat = wspace->cat("PairCat");
+            RooArgSet norm(*Mass,*ReducedMassRes,*PairCat);
+            
+            double yield[_nspec];
+            yield[_bs]   = wspace->function(Form("N_bs_formula_%s",cat.id.Data()))->getVal();
+            yield[_bd]   = wspace->function(Form("N_bd_formula_%s",cat.id.Data()))->getVal();
+            yield[_peak] = wspace->function(Form("N_peak_formula_%s",cat.id.Data()))->getVal();
+            yield[_semi] = wspace->function(Form("N_semi_formula_%s",cat.id.Data()))->getVal();
+            yield[_h2mu] = wspace->var(Form("N_h2mu_%s",cat.id.Data()))->getVal();
+            yield[_comb] = wspace->var(Form("N_comb_%s",cat.id.Data()))->getVal();
+            
+            TMatrixD covInv(_nspec, _nspec);
+            covInv = 0.;
+            
+            for (int evt=0; evt<wspace->data("global_data")->numEntries(); evt++) {
+                const RooArgSet* arg = wspace->data("global_data")->get(evt);
+                if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
+                
+                Mass->setVal(arg->getRealValue("Mass"));
+                ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
+                PairCat->setIndex(arg->getCatIndex("PairCat"));
+                
+                double pdf[_nspec];
+                for (int idx = 0; idx<_nspec; idx++)
+                    pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
+                
+                double pdf_total = 0.;
+                for (int idx = 0; idx<_nspec; idx++) pdf_total += yield[idx]*pdf[idx];
+                
+                for (int row = 0; row<_nspec; row++)
+                    for (int col = 0; col<_nspec; col++)
+                        covInv(row,col) += pdf[row]*pdf[col]/(pdf_total*pdf_total);
+            }
+            
+            TMatrixD covMatrix(TMatrixD::kInverted,covInv);
+            
+            double weight_total[_nspec];
+            for (int idx = 0; idx < _nspec; idx++) weight_total[idx] = 0.;
+            
+            for (int evt=0; evt<wspace->data("global_data")->numEntries(); evt++) {
+                const RooArgSet* arg = wspace->data("global_data")->get(evt);
+                if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
+                if (arg->getCatIndex("SelCat")!=1) continue;
+                
+                Mass->setVal(arg->getRealValue("Mass"));
+                ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
+                PairCat->setIndex(arg->getCatIndex("PairCat"));
+                
+                double pdf[_nspec];
+                for (int idx = 0; idx<_nspec; idx++)
+                    pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
+                
+                double denominator = 0.;
+                for (int idx = 0; idx<_nspec; idx++) denominator += yield[idx]*pdf[idx];
+                
+                if (sysidx<0) { // central sPlot
+                    for (int target_spec = 0; target_spec<_nspec; target_spec++) {
+                        double numerator = 0.;
+                        for (int idx = 0; idx<_nspec; idx++) numerator += covMatrix(target_spec,idx)*pdf[idx];
+                    
+                        double weight = numerator/denominator;
+                        h_tau[target_spec]->Fill(arg->getRealValue("Tau"),weight);
+                        weight_total[target_spec] += weight;
+                    }
+                }else {
+                    double numerator = 0.;
+                    for (int idx = 0; idx<_nspec; idx++) numerator += covMatrix(_bs,idx)*pdf[idx];
+
+                    double weight = numerator/denominator;
+                    h_tau_sys[sysidx]->Fill(arg->getRealValue("Tau"),weight);
+                }
+            }
+            if (sysidx<0) { // central sPlot
+                cout << ">>> sPlot check sum for bin: " << cat.id << endl;
+                for (int idx = 0; idx<_nspec; idx++)
+                    cout << ">>> Spec " << specs[idx] << ": " << weight_total[idx] << " / " << yield[idx] << endl;
+            }
+        }
+        
+        RooRealVar *Tau = wspace->var("Tau");
+        RooRealVar *EffTau_bs = wspace->var("EffTau_bs");
+        RooAbsPdf *Tau_pdf_bs = wspace->pdf("Tau_pdf_bs_mix");
+        
+        EffTau_bs->setConstant(false);
+        EffTau_bs->setVal(1.61); // always start from SM value
+        
+        if (sysidx<0) {
+            Fit_sPlot(h_tau[_bs], Tau_pdf_bs, Tau, EffTau_bs, &res1, &res2);
+            wspace->import(*res1,"fitresult_taubs"); // results with corrected uncertainties
+            wspace->import(*res2,"fitresult_taubs_wl"); // results from the 2nd weighted likelihood fit
+            
+        }else {
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            
+            RooFitResult *res1sys = NULL, *res2sys = NULL;
+            
+            if (key=="HistEffModel") {
+                RooResolutionModel *TauRes_Model = (RooResolutionModel*)wspace->obj(Form("TauRes_Model_bsmm_mix"));
+                RooFormulaVar *TauEff_Model = (RooFormulaVar*)wspace->obj(Form("TauEff_Model_Hist_bsmm_mix"));
+                
+                RooDecay RawDecay("RawDecay_alter","",*Tau,*EffTau_bs,*TauRes_Model,RooDecay::SingleSided);
+                RooEffProd Tau_pdf("Tau_pdf_alter","",RawDecay,*TauEff_Model);
+                Fit_sPlot(h_tau_sys[sysidx], &Tau_pdf, Tau, EffTau_bs, &res1sys, &res2sys);
+            }else
+                Fit_sPlot(h_tau_sys[sysidx], Tau_pdf_bs, Tau, EffTau_bs, &res1sys, &res2sys);
+            
+            RooRealVar* tau0 = (RooRealVar*)res1->floatParsFinal().find("EffTau_bs");
+            RooRealVar* tau1 = (RooRealVar*)res1sys->floatParsFinal().find("EffTau_bs");
+            diff_tau_sys[sysidx] = tau1->getVal()-tau0->getVal();
+            
+            delete res1sys;
+            delete res2sys;
+        }
+        
+        if (sysidx<0) // central sPlot
+        for (int target_spec = 0; target_spec<_nspec; target_spec++) {
+            
+            TString title = "CMS Preliminary";
+            
+            RooRealVar ps("ps","",0.,14.);
+            RooDataHist *h_tau_data = new RooDataHist("h_tau_data", "", RooArgList(ps), h_tau[target_spec]);
+            RooPlot* frame = ps.frame(Title(" "));
+            h_tau[target_spec]->SetMarkerStyle(20);
+            h_tau[target_spec]->SetLineColor(kBlack);
+            h_tau_data->plotOn(frame,MarkerStyle(20),LineColor(kBlack));
+            
+            if (target_spec==_bs)
+            Tau_pdf_bs->plotOn(frame, DrawOption("L"), LineColor(kBlue), LineWidth(2), LineStyle(1), NumCPU(NCPU));
+            
+            TCanvas* canvas = new TCanvas("canvas", "", 600, 600);
+            canvas->SetMargin(0.14,0.06,0.13,0.07);
+            
+            frame->GetYaxis()->SetTitleOffset(1.15);
+            frame->GetYaxis()->SetTitle("Entries");
+            frame->GetXaxis()->SetTitleOffset(1.15);
+            frame->GetXaxis()->SetLabelOffset(0.01);
+            frame->GetXaxis()->SetTitle("#tau [ps]");
+            frame->GetXaxis()->SetTitleSize(0.043);
+            frame->GetYaxis()->SetTitleSize(0.043);
+            frame->SetStats(false);
+            frame->Draw("E");
+            gStyle->SetErrorX(0);
+            
+            TLatex tex;
+            tex.SetTextFont(42);
+            tex.SetTextSize(0.035);
+            tex.SetTextAlign(11);
+            tex.SetNDC();
+            tex.DrawLatex(0.14,0.94,title);
+            
+            TLine lin;
+            lin.SetLineColor(kGray+1);
+            lin.SetLineWidth(2);
+            lin.SetLineStyle(7);
+            lin.DrawLine(0.,0.,14.,0.);
+            
+            canvas->Update();
+            
+            TLegend *leg1 = new TLegend(0.50,0.86,0.91,0.91);
+            leg1->SetNColumns(1);
+            leg1->SetFillColor(kWhite);
+            leg1->SetLineColor(kWhite);
+            leg1->AddEntry(h_tau[target_spec], Form("weighted data (%s)",specs[target_spec].Data()), "ep");
+            leg1->Draw();
+            
+            canvas->Print(Form("fig/tau_splot_%s.pdf",specs[target_spec].Data()));
+            
+            delete leg1;
+            delete h_tau_data;
+            delete frame;
+            delete canvas;
+        }
+        
+        if (sysidx>=0) { // restore the nuisance value
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            if (var!="0") {
+                RooRealVar *nuisance = wspace->var(key);
+                nuisance->setVal(nuisance_preserve);
+            }
+        }
+    } // ending of systematics loop
     
-    for (int target_spec = 0; target_spec<_nspec; target_spec++) {
+    if (sys_study) {
         
-        TString title = "CMS Preliminary";
+        double err_p = 0., err_m = 0.;
+        for (int sysidx = 0; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            cout << ">>> SYS(" << var << ") " << key << ": " << diff_tau_sys[sysidx] << endl;
+            
+            if (diff_tau_sys[sysidx]>0.) err_p += diff_tau_sys[sysidx]*diff_tau_sys[sysidx];
+            if (diff_tau_sys[sysidx]<0.) err_m += diff_tau_sys[sysidx]*diff_tau_sys[sysidx];
+            
+            delete h_tau_sys[sysidx];
+        }
+        err_p = sqrt(err_p);
+        err_m = sqrt(err_m);
         
-        RooRealVar ps("ps","",0.,14.);
-        RooDataHist *h_tau_data = new RooDataHist("h_tau_data", "", RooArgList(ps), h_tau[target_spec]);
-        RooPlot* frame = ps.frame(Title(" "));
-        h_tau[target_spec]->SetMarkerStyle(20);
-        h_tau[target_spec]->SetLineColor(kBlack);
-        h_tau_data->plotOn(frame,MarkerStyle(20),LineColor(kBlack));
+        RooFitResult res3(*res1);
+        RooRealVar* tau1 = (RooRealVar*)res3.floatParsFinal().find("EffTau_bs");
+        tau1->setError(max(err_p, err_m));
+        tau1->setAsymError(-err_m, err_p);
+        wspace->import(res3,"fitresult_taubs_syst"); // systematic results
         
-        TCanvas* canvas = new TCanvas("canvas", "", 600, 600);
-        canvas->SetMargin(0.14,0.06,0.13,0.07);
-        
-        frame->GetYaxis()->SetTitleOffset(1.15);
-        frame->GetYaxis()->SetTitle("Entries");
-        frame->GetXaxis()->SetTitleOffset(1.15);
-        frame->GetXaxis()->SetLabelOffset(0.01);
-        frame->GetXaxis()->SetTitle("#tau [ps]");
-        frame->GetXaxis()->SetTitleSize(0.043);
-        frame->GetYaxis()->SetTitleSize(0.043);
-        frame->SetStats(false);
-        frame->Draw("E");
-        gStyle->SetErrorX(0);
-        
-        TLatex tex;
-        tex.SetTextFont(42);
-        tex.SetTextSize(0.035);
-        tex.SetTextAlign(11);
-        tex.SetNDC();
-        tex.DrawLatex(0.14,0.94,title);
-        
-        TLine lin;
-        lin.SetLineColor(kGray+1);
-        lin.SetLineWidth(2);
-        lin.SetLineStyle(7);
-        lin.DrawLine(0.,0.,14.,0.);
-        
-        canvas->Update();
-        
-        TLegend *leg1 = new TLegend(0.50,0.86,0.91,0.91);
-        leg1->SetNColumns(1);
-        leg1->SetFillColor(kWhite);
-        leg1->SetLineColor(kWhite);
-        leg1->AddEntry(h_tau[target_spec], Form("weighted data (%s)",specs[target_spec].Data()), "ep");
-        leg1->Draw();
-        
-        canvas->Print(Form("fig/tau_splot_%s.pdf",specs[target_spec].Data()));
-        
-        delete h_tau_data;
-        delete frame;
-        delete canvas;
+        RooRealVar* tau0 = (RooRealVar*)res1->floatParsFinal().find("EffTau_bs");
+        cout << ">>> EffTau central: " << tau0->getVal() << " +- " <<
+        tau0->getError() << " (+" << tau0->getErrorHi() << "/" << tau0->getErrorLo() << ")" <<
+        " (+" << err_p << "/-" << err_m << ")" << endl;
     }
+    for (int idx = 0; idx < _nspec; idx++) delete h_tau[idx];
+    delete res1;
+    delete res2;
 }
 
 void bmm4fitter(TString commands = "")
@@ -2833,7 +3009,7 @@ void bmm4fitter(TString commands = "")
     // -----------------------------------------------------------
     // Initializing categories definition
     
-    if (CONFIG_BMM3) CatMan.RegisterBMM3Categories();
+//    if (CONFIG_BMM3) CatMan.RegisterBMM3Categories();
     if (CONFIG_BMM4) CatMan.RegisterBMM4Categories();
     CatMan.Print();
     
@@ -2855,14 +3031,14 @@ void bmm4fitter(TString commands = "")
     PrepareGlobalVariables(wspace,do_update_config?0:wspace_base);
     
     // define subchannel variables & constraints
-    if (CONFIG_BMM3) PrepareBMM3SubVariables(wspace,do_update_config?0:wspace_base);
+//    if (CONFIG_BMM3) PrepareBMM3SubVariables(wspace,do_update_config?0:wspace_base);
     if (CONFIG_BMM4) PrepareBMM4SubVariables(wspace,do_update_config?0:wspace_base);
     
     // define decay time related models
     PrepareLifetimeModel(wspace, do_update_pdf?0:wspace_base);
     
     // define subchannel PDF
-    if (CONFIG_BMM3) PrepareBMM3SubPDF(wspace,do_update_pdf?0:wspace_base);
+//    if (CONFIG_BMM3) PrepareBMM3SubPDF(wspace,do_update_pdf?0:wspace_base);
     if (CONFIG_BMM4) PrepareBMM4SubPDF(wspace,do_update_pdf?0:wspace_base);
     
     // define global PDF
@@ -2899,7 +3075,7 @@ void bmm4fitter(TString commands = "")
         RooAbsData *global_data = wspace->data("global_data");
         RooAbsPdf *global_pdf = wspace->pdf("global_pdf");
         
-        RooArgSet global_ext_constr(*wspace->pdf("fs_over_fu_gau"),*wspace->pdf("one_over_BRBR_gau")); // external Gaussian constraints
+        RooArgSet global_ext_constr(*wspace->pdf("fs_over_fu_gau"),*wspace->pdf("fs_over_fu_S13_gau"),*wspace->pdf("one_over_BRBR_gau")); // external Gaussian constraints
         RooArgSet minos_list;
         for (auto& POI: POI_list) minos_list.add(*wspace->var(POI));
         
