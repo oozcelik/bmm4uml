@@ -1,6 +1,6 @@
 #include "bmm4common.h"
 
-void ProduceToyTauSPlot(RooWorkspace *wspace_res, RooWorkspace *wspace, RooDataSet *toy_data, int toy_idx, bool display = false)
+void ProduceToyTauSPlot(RooWorkspace *wspace_res, RooWorkspace *wspace, RooDataSet *toy_data, int toy_idx, bool sys_study = false, bool display = false)
 {
     cout << ">>> ProduceToyTauSPlot() start" << endl;
     
@@ -10,140 +10,253 @@ void ProduceToyTauSPlot(RooWorkspace *wspace_res, RooWorkspace *wspace, RooDataS
     TH1D *h_tau = new TH1D("h_tau_bs", "", Tau_bins.size()-1, Tau_bins.data());
     h_tau->Sumw2();
     
-    for (auto& cat: CatMan.cats) {
-        
-        RooRealVar *Mass = wspace->var("Mass");
-        RooRealVar *ReducedMassRes = wspace->var("ReducedMassRes");
-        RooCategory *PairCat = wspace->cat("PairCat");
-        RooArgSet norm(*Mass,*ReducedMassRes,*PairCat);
-        
-        double yield[_nspec];
-        yield[_bs]   = wspace->function(Form("N_bs_formula_%s",cat.id.Data()))->getVal();
-        yield[_bd]   = wspace->function(Form("N_bd_formula_%s",cat.id.Data()))->getVal();
-        yield[_peak] = wspace->function(Form("N_peak_formula_%s",cat.id.Data()))->getVal();
-        yield[_semi] = wspace->function(Form("N_semi_formula_%s",cat.id.Data()))->getVal();
-        yield[_h2mu] = wspace->var(Form("N_h2mu_%s",cat.id.Data()))->getVal();
-        yield[_comb] = wspace->var(Form("N_comb_%s",cat.id.Data()))->getVal();
-        
-        TMatrixD covInv(_nspec, _nspec);
-        covInv = 0.;
-        
-        for (int evt=0; evt<toy_data->numEntries(); evt++) {
-            const RooArgSet* arg = toy_data->get(evt);
-            if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
-            
-            Mass->setVal(arg->getRealValue("Mass"));
-            ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
-            PairCat->setIndex(arg->getCatIndex("PairCat"));
-            
-            double pdf[_nspec];
-            for (int idx = 0; idx<_nspec; idx++)
-                pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
-            
-            double pdf_total = 0.;
-            for (int idx = 0; idx<_nspec; idx++) pdf_total += yield[idx]*pdf[idx];
-            
-            for (int row = 0; row<_nspec; row++)
-                for (int col = 0; col<_nspec; col++)
-                    covInv(row,col) += pdf[row]*pdf[col]/(pdf_total*pdf_total);
-        }
-        
-        TMatrixD covMatrix(TMatrixD::kInverted,covInv);
-        
-        for (int evt=0; evt<toy_data->numEntries(); evt++) {
-            const RooArgSet* arg = toy_data->get(evt);
-            if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
-            if (arg->getCatIndex("SelCat")!=1) continue;
-            
-            Mass->setVal(arg->getRealValue("Mass"));
-            ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
-            PairCat->setIndex(arg->getCatIndex("PairCat"));
-            
-            double pdf[_nspec];
-            for (int idx = 0; idx<_nspec; idx++)
-                pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
-            
-            double denominator = 0.;
-            for (int idx = 0; idx<_nspec; idx++) denominator += yield[idx]*pdf[idx];
-
-            double numerator = 0.;
-            for (int idx = 0; idx<_nspec; idx++) numerator += covMatrix(_bs,idx)*pdf[idx];
-            
-            double weight = numerator/denominator;
-            
-            h_tau->Fill(arg->getRealValue("Tau"),weight);
-        }
-    }
-    
-    RooRealVar *Tau = wspace->var("Tau");
-    RooRealVar *EffTau_bs = wspace->var("EffTau_bs");
-    RooAbsPdf *Tau_pdf_bs = wspace->pdf("Tau_pdf_bs_mix");
-    
-    EffTau_bs->setConstant(false);
-    EffTau_bs->setMax(8.0);
-    
-    // Binned weighted likelihood fit w/ PDF bin integration
     RooFitResult *res1 = NULL, *res2 = NULL;
-    Fit_sPlot(h_tau, Tau_pdf_bs, Tau, EffTau_bs, &res1, &res2);
     
-    wspace_res->import(*res1,Form("fitresult_taubs_toy_%d",toy_idx)); // results with corrected uncertainties
-    wspace_res->import(*res2,Form("fitresult_taubs_wl_toy_%d",toy_idx)); // results from the 2nd weighted likelihood fit
+    vector<TH1D*> h_tau_sys;
+    vector<double> diff_tau_sys;
+    vector<TString> cmd_tau_sys;
     
-    if (display) {
-        RooDataHist *h_tau_data = new RooDataHist("h_tau_data", "", RooArgList(*Tau), h_tau);
+    if (sys_study) {
+        cmd_tau_sys.push_back(Form("0HistEffModel"));
+        cmd_tau_sys.push_back(Form("+respar_bsmm_mix_taue"));
+        cmd_tau_sys.push_back(Form("-respar_bsmm_mix_taue"));
+        cmd_tau_sys.push_back(Form("+fs_over_fu_S13"));
+        cmd_tau_sys.push_back(Form("-fs_over_fu_S13"));
+        for (auto& cat: CatMan.cats) {
+            cmd_tau_sys.push_back(Form("+N_bu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_bu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+effratio_bs_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-effratio_bs_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+effratio_bd_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-effratio_bd_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_semi_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_semi_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_h2mu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_h2mu_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("+N_peak_%s", cat.id.Data()));
+            cmd_tau_sys.push_back(Form("-N_peak_%s", cat.id.Data()));
+        }
         
-        TString title = "CMS Preliminary";
-        
-        RooPlot* frame = Tau->frame(Title(" "));
-        h_tau->SetMarkerStyle(20);
-        h_tau->SetLineColor(kBlack);
-        h_tau_data->plotOn(frame,MarkerStyle(20),LineColor(kBlack));
-        
-        Tau_pdf_bs->plotOn(frame, DrawOption("L"), LineColor(kBlue), LineWidth(2), LineStyle(1), NumCPU(NCPU));
-        
-        TCanvas* canvas = new TCanvas("canvas", "", 600, 600);
-        canvas->SetMargin(0.14,0.06,0.13,0.07);
-        
-        frame->GetYaxis()->SetTitleOffset(1.15);
-        frame->GetYaxis()->SetTitle("Entries");
-        frame->GetXaxis()->SetTitleOffset(1.15);
-        frame->GetXaxis()->SetLabelOffset(0.01);
-        frame->GetXaxis()->SetTitle("#tau [ps]");
-        frame->GetXaxis()->SetTitleSize(0.043);
-        frame->GetYaxis()->SetTitleSize(0.043);
-        frame->SetStats(false);
-        frame->Draw("E");
-        gStyle->SetErrorX(0);
-        
-        TLatex tex;
-        tex.SetTextFont(42);
-        tex.SetTextSize(0.035);
-        tex.SetTextAlign(11);
-        tex.SetNDC();
-        tex.DrawLatex(0.14,0.94,title);
-        
-        TLine lin;
-        lin.SetLineColor(kGray+1);
-        lin.SetLineWidth(2);
-        lin.SetLineStyle(7);
-        lin.DrawLine(1.,0.,12.,0.);
-        
-        canvas->Update();
-        
-        TLegend *leg1 = new TLegend(0.50,0.86,0.91,0.91);
-        leg1->SetNColumns(1);
-        leg1->SetFillColor(kWhite);
-        leg1->SetLineColor(kWhite);
-        leg1->AddEntry(h_tau, "weighted toy (B_{s})", "lep");
-        leg1->Draw();
-        
-        canvas->Print("fig/tau_splot_fit_toy_bs.pdf");
-        
-        delete leg1;
-        delete h_tau_data;
-        delete canvas;
+        h_tau_sys.assign(cmd_tau_sys.size(),NULL);
+        diff_tau_sys.assign(cmd_tau_sys.size(),0.);
+        for (int sysidx = 0; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
+            h_tau_sys[sysidx] = new TH1D(Form("h_tau_sys_%03d",sysidx), "", Tau_bins.size()-1, Tau_bins.data());
+            h_tau_sys[sysidx]->Sumw2();
+        }
     }
     
+    for (int sysidx = -1; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
+        
+        if (!sys_study && sysidx>=0) break; // skip nuisances variations
+        
+        double nuisance_preserve = 0.;
+        if (sysidx>=0) {
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            
+            // Take post-fit nuisance variation
+            if (var!="0") {
+                RooRealVar *nuisance = wspace->var(key);
+                nuisance_preserve = nuisance->getVal();
+                if (var=="-") nuisance->setVal(nuisance_preserve-nuisance->getError());
+                if (var=="+") nuisance->setVal(nuisance_preserve+nuisance->getError());
+            }
+        }
+        
+        for (auto& cat: CatMan.cats) {
+            
+            RooRealVar *Mass = wspace->var("Mass");
+            RooRealVar *ReducedMassRes = wspace->var("ReducedMassRes");
+            RooCategory *PairCat = wspace->cat("PairCat");
+            RooArgSet norm(*Mass,*ReducedMassRes,*PairCat);
+            
+            double yield[_nspec];
+            yield[_bs]   = wspace->function(Form("N_bs_formula_%s",cat.id.Data()))->getVal();
+            yield[_bd]   = wspace->function(Form("N_bd_formula_%s",cat.id.Data()))->getVal();
+            yield[_peak] = wspace->function(Form("N_peak_formula_%s",cat.id.Data()))->getVal();
+            yield[_semi] = wspace->function(Form("N_semi_formula_%s",cat.id.Data()))->getVal();
+            yield[_h2mu] = wspace->var(Form("N_h2mu_%s",cat.id.Data()))->getVal();
+            yield[_comb] = wspace->var(Form("N_comb_%s",cat.id.Data()))->getVal();
+            
+            TMatrixD covInv(_nspec, _nspec);
+            covInv = 0.;
+            
+            for (int evt=0; evt<toy_data->numEntries(); evt++) {
+                const RooArgSet* arg = toy_data->get(evt);
+                if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
+                
+                Mass->setVal(arg->getRealValue("Mass"));
+                ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
+                PairCat->setIndex(arg->getCatIndex("PairCat"));
+                
+                double pdf[_nspec];
+                for (int idx = 0; idx<_nspec; idx++)
+                    pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
+                
+                double pdf_total = 0.;
+                for (int idx = 0; idx<_nspec; idx++) pdf_total += yield[idx]*pdf[idx];
+                
+                for (int row = 0; row<_nspec; row++)
+                    for (int col = 0; col<_nspec; col++)
+                        covInv(row,col) += pdf[row]*pdf[col]/(pdf_total*pdf_total);
+            }
+            
+            TMatrixD covMatrix(TMatrixD::kInverted,covInv);
+            
+            for (int evt=0; evt<toy_data->numEntries(); evt++) {
+                const RooArgSet* arg = toy_data->get(evt);
+                if (arg->getCatIndex("GlobalCat")!=cat.index) continue;
+                if (arg->getCatIndex("SelCat")!=1) continue;
+                
+                Mass->setVal(arg->getRealValue("Mass"));
+                ReducedMassRes->setVal(arg->getRealValue("ReducedMassRes"));
+                PairCat->setIndex(arg->getCatIndex("PairCat"));
+                
+                double pdf[_nspec];
+                for (int idx = 0; idx<_nspec; idx++)
+                    pdf[idx] = wspace->pdf(Form("pdf_%s_%s",specs[idx].Data(),cat.id.Data()))->getVal(&norm);
+                
+                double denominator = 0.;
+                for (int idx = 0; idx<_nspec; idx++) denominator += yield[idx]*pdf[idx];
+                
+                double numerator = 0.;
+                for (int idx = 0; idx<_nspec; idx++) numerator += covMatrix(_bs,idx)*pdf[idx];
+                
+                double weight = numerator/denominator;
+                if (sysidx<0) h_tau->Fill(arg->getRealValue("Tau"),weight);
+                else h_tau_sys[sysidx]->Fill(arg->getRealValue("Tau"),weight);
+            }
+        }
+        
+        RooRealVar *Tau = wspace->var("Tau");
+        RooRealVar *EffTau_bs = wspace->var("EffTau_bs");
+        RooAbsPdf *Tau_pdf_bs = wspace->pdf("Tau_pdf_bs_mix");
+        
+        EffTau_bs->setConstant(false);
+        EffTau_bs->setMax(8.0);
+        EffTau_bs->setVal(1.61); // always start from SM value
+        
+        if (sysidx<0) { // central fit
+            Fit_sPlot(h_tau, Tau_pdf_bs, Tau, EffTau_bs, &res1, &res2);
+            wspace_res->import(*res1,Form("fitresult_taubs_toy_%d",toy_idx)); // results with corrected uncertainties
+            wspace_res->import(*res2,Form("fitresult_taubs_wl_toy_%d",toy_idx)); // results from the 2nd weighted likelihood fit
+            
+        }else {
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            
+            RooFitResult *res1sys = NULL, *res2sys = NULL;
+            
+            if (key=="HistEffModel") {
+                RooResolutionModel *TauRes_Model = (RooResolutionModel*)wspace->obj(Form("TauRes_Model_bsmm_mix"));
+                RooFormulaVar *TauEff_Model = (RooFormulaVar*)wspace->obj(Form("TauEff_Model_Hist_bsmm_mix"));
+                
+                RooDecay RawDecay("RawDecay_alter","",*Tau,*EffTau_bs,*TauRes_Model,RooDecay::SingleSided);
+                RooEffProd Tau_pdf("Tau_pdf_alter","",RawDecay,*TauEff_Model);
+                Fit_sPlot(h_tau_sys[sysidx], &Tau_pdf, Tau, EffTau_bs, &res1sys, &res2sys);
+            }else
+                Fit_sPlot(h_tau_sys[sysidx], Tau_pdf_bs, Tau, EffTau_bs, &res1sys, &res2sys);
+            
+            RooRealVar* tau0 = (RooRealVar*)res1->floatParsFinal().find("EffTau_bs");
+            RooRealVar* tau1 = (RooRealVar*)res1sys->floatParsFinal().find("EffTau_bs");
+            diff_tau_sys[sysidx] = tau1->getVal()-tau0->getVal();
+
+            delete res1sys;
+            delete res2sys;
+        }
+        
+        if (sysidx<0 && display) {
+            RooDataHist *h_tau_data = new RooDataHist("h_tau_data", "", RooArgList(*Tau), h_tau);
+            
+            TString title = "CMS Preliminary";
+            
+            RooPlot* frame = Tau->frame(Title(" "));
+            h_tau->SetMarkerStyle(20);
+            h_tau->SetLineColor(kBlack);
+            h_tau_data->plotOn(frame,MarkerStyle(20),LineColor(kBlack));
+            
+            Tau_pdf_bs->plotOn(frame, DrawOption("L"), LineColor(kBlue), LineWidth(2), LineStyle(1), NumCPU(NCPU));
+            
+            TCanvas* canvas = new TCanvas("canvas", "", 600, 600);
+            canvas->SetMargin(0.14,0.06,0.13,0.07);
+            
+            frame->GetYaxis()->SetTitleOffset(1.15);
+            frame->GetYaxis()->SetTitle("Entries");
+            frame->GetXaxis()->SetTitleOffset(1.15);
+            frame->GetXaxis()->SetLabelOffset(0.01);
+            frame->GetXaxis()->SetTitle("#tau [ps]");
+            frame->GetXaxis()->SetTitleSize(0.043);
+            frame->GetYaxis()->SetTitleSize(0.043);
+            frame->SetStats(false);
+            frame->Draw("E");
+            gStyle->SetErrorX(0);
+            
+            TLatex tex;
+            tex.SetTextFont(42);
+            tex.SetTextSize(0.035);
+            tex.SetTextAlign(11);
+            tex.SetNDC();
+            tex.DrawLatex(0.14,0.94,title);
+            
+            TLine lin;
+            lin.SetLineColor(kGray+1);
+            lin.SetLineWidth(2);
+            lin.SetLineStyle(7);
+            lin.DrawLine(1.,0.,12.,0.);
+            
+            canvas->Update();
+            
+            TLegend *leg1 = new TLegend(0.50,0.86,0.91,0.91);
+            leg1->SetNColumns(1);
+            leg1->SetFillColor(kWhite);
+            leg1->SetLineColor(kWhite);
+            leg1->AddEntry(h_tau, "weighted toy (B_{s})", "lep");
+            leg1->Draw();
+            
+            canvas->Print("fig/tau_splot_fit_toy_bs.pdf");
+            
+            delete leg1;
+            delete h_tau_data;
+            delete frame;
+            delete canvas;
+        }
+        
+        if (sysidx>=0) { // restore the nuisance value
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            if (var!="0") {
+                RooRealVar *nuisance = wspace->var(key);
+                nuisance->setVal(nuisance_preserve);
+            }
+        }
+    } // ending of systematics loop
+    
+    if (sys_study) {
+
+        double err_p = 0., err_m = 0.;
+        for (int sysidx = 0; sysidx < (int)cmd_tau_sys.size(); sysidx++) {
+            TString var = cmd_tau_sys[sysidx](0,1);
+            TString key = cmd_tau_sys[sysidx](1,cmd_tau_sys[sysidx].Length()-1);
+            cout << ">>> SYS(" << var << ") " << key << ": " << diff_tau_sys[sysidx] << endl;
+            
+            if (diff_tau_sys[sysidx]>0.) err_p += diff_tau_sys[sysidx]*diff_tau_sys[sysidx];
+            if (diff_tau_sys[sysidx]<0.) err_m += diff_tau_sys[sysidx]*diff_tau_sys[sysidx];
+        
+            delete h_tau_sys[sysidx];
+        }
+        err_p = sqrt(err_p);
+        err_m = sqrt(err_m);
+        
+        RooFitResult res3(*res1);
+        RooRealVar* tau1 = (RooRealVar*)res3.floatParsFinal().find("EffTau_bs");
+        tau1->setError(max(err_p, err_m));
+        tau1->setAsymError(-err_m, err_p);
+        wspace_res->import(res3,Form("fitresult_taubs_syst_toy_%d",toy_idx)); // systematic results
+        
+        RooRealVar* tau0 = (RooRealVar*)res1->floatParsFinal().find("EffTau_bs");
+        cout << ">>> EffTau central: " << tau0->getVal() << " +- " <<
+        tau0->getError() << " (+" << tau0->getErrorHi() << "/" << tau0->getErrorLo() << ")" <<
+        " (+" << err_p << "/-" << err_m << ")" << endl;
+    }
     delete h_tau;
     delete res1;
     delete res2;
@@ -151,13 +264,15 @@ void ProduceToyTauSPlot(RooWorkspace *wspace_res, RooWorkspace *wspace, RooDataS
 
 // Available options:
 // ---------
-// prefit   - adopt pre-fit nuisances, randomize all of the nuisances according to the constraints
-// freq     - generate frequentist toy, adopt post-fit nuisances, randomize all of the constrained means
+// prefit    - adopt pre-fit nuisances, randomize all of the nuisances according to the constraints
+// freq      - generate frequentist toy, adopt post-fit nuisances, randomize all of the constrained means
+// freezenui - freeze all of the nuisances in the fit
 // ---------
-// signif   - do significance estimation
-// bdstat   - Calculate profile Likelihood test statistics (F&C study or upper limit calculation for Bd)
+// signif    - do significance estimation
+// bdstat    - Calculate profile Likelihood test statistics (F&C study or upper limit calculation for Bd)
 // ---------
-// tausplot - add decay time component, produce splot, and fit
+// tausplot  - add decay time component, produce splot, and fit
+// tausyst   - enable systematic studies for tausplot
 //
 void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWorkspace* wspace_fit, int iterations = 10, bool do_minos = false, TString opt = "prefit;signif")
 {
@@ -183,12 +298,17 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
             
             // change the wspace_gen
             RooRealVar *fs_over_fu = wspace_gen->var("fs_over_fu");
+            RooRealVar *fs_over_fu_S13 = wspace_gen->var("fs_over_fu_S13");
             RooRealVar *one_over_BRBR = wspace_gen->var("one_over_BRBR");
             RooAbsPdf *fs_over_fu_gau = wspace_gen->pdf("fs_over_fu_gau");
+            RooAbsPdf *fs_over_fu_S13_gau = wspace_gen->pdf("fs_over_fu_S13_gau");
             RooAbsPdf *one_over_BRBR_gau = wspace_gen->pdf("one_over_BRBR_gau");
             
             tmp_evt = fs_over_fu_gau->generate(RooArgSet(*fs_over_fu),1);
             fs_over_fu->setVal(tmp_evt->get(0)->getRealValue(fs_over_fu->GetName())); delete tmp_evt;
+
+            tmp_evt = fs_over_fu_S13_gau->generate(RooArgSet(*fs_over_fu_S13),1);
+            fs_over_fu_S13->setVal(tmp_evt->get(0)->getRealValue(fs_over_fu_S13->GetName())); delete tmp_evt;
             
             tmp_evt = one_over_BRBR_gau->generate(RooArgSet(*one_over_BRBR),1);
             one_over_BRBR->setVal(tmp_evt->get(0)->getRealValue(one_over_BRBR->GetName())); delete tmp_evt;
@@ -205,7 +325,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
                 
                 RooAbsPdf *N_bu_gau = wspace_gen->pdf(Form("N_bu_%s_gau", cat.id.Data()));
                 RooAbsPdf *N_peak_lnn = wspace_gen->pdf(Form("N_peak_%s_lnn", cat.id.Data()));
-                RooAbsPdf *N_semi_gau = wspace_gen->pdf(Form("N_semi_%s_gau", cat.id.Data()));
+                RooAbsPdf *N_semi_lnn = wspace_gen->pdf(Form("N_semi_%s_lnn", cat.id.Data()));
                 RooAbsPdf *N_h2mu_lnn = wspace_gen->pdf(Form("N_h2mu_%s_lnn", cat.id.Data()));
                 RooAbsPdf *effratio_bs_gau = wspace_gen->pdf(Form("effratio_bs_%s_gau", cat.id.Data()));
                 RooAbsPdf *effratio_bd_gau = wspace_gen->pdf(Form("effratio_bd_%s_gau", cat.id.Data()));
@@ -216,7 +336,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
                 tmp_evt = N_peak_lnn->generate(RooArgSet(*N_peak),1);
                 N_peak->setVal(tmp_evt->get(0)->getRealValue(N_peak->GetName())); delete tmp_evt;
                 
-                tmp_evt = N_semi_gau->generate(RooArgSet(*N_semi),1);
+                tmp_evt = N_semi_lnn->generate(RooArgSet(*N_semi),1);
                 N_semi->setVal(tmp_evt->get(0)->getRealValue(N_semi->GetName())); delete tmp_evt;
                 
                 tmp_evt = N_h2mu_lnn->generate(RooArgSet(*N_h2mu),1);
@@ -233,16 +353,23 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
             
             // change the clone of wspace_fit
             RooRealVar *fs_over_fu = wspace->var("fs_over_fu");
+            RooRealVar *fs_over_fu_S13 = wspace->var("fs_over_fu_S13");
             RooRealVar *one_over_BRBR = wspace->var("one_over_BRBR");
             RooRealVar *fs_over_fu_mean = wspace->var("fs_over_fu_mean");
+            RooRealVar *fs_over_fu_S13_mean = wspace->var("fs_over_fu_S13_mean");
             RooRealVar *one_over_BRBR_mean = wspace->var("one_over_BRBR_mean");
             RooAbsPdf *fs_over_fu_gau = wspace->pdf("fs_over_fu_gau");
+            RooAbsPdf *fs_over_fu_S13_gau = wspace->pdf("fs_over_fu_S13_gau");
             RooAbsPdf *one_over_BRBR_gau = wspace->pdf("one_over_BRBR_gau");
             
             fs_over_fu_mean->setVal(fs_over_fu->getVal());
             tmp_evt = fs_over_fu_gau->generate(RooArgSet(*fs_over_fu),1);
             fs_over_fu_mean->setVal(tmp_evt->get(0)->getRealValue(fs_over_fu->GetName())); delete tmp_evt;
 
+            fs_over_fu_S13_mean->setVal(fs_over_fu_S13->getVal());
+            tmp_evt = fs_over_fu_S13_gau->generate(RooArgSet(*fs_over_fu_S13),1);
+            fs_over_fu_S13_mean->setVal(tmp_evt->get(0)->getRealValue(fs_over_fu_S13->GetName())); delete tmp_evt;
+            
             one_over_BRBR_mean->setVal(one_over_BRBR->getVal());
             tmp_evt = one_over_BRBR_gau->generate(RooArgSet(*one_over_BRBR),1);
             one_over_BRBR_mean->setVal(tmp_evt->get(0)->getRealValue(one_over_BRBR->GetName())); delete tmp_evt;
@@ -266,7 +393,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
                 
                 RooAbsPdf *N_bu_gau = wspace->pdf(Form("N_bu_%s_gau", cat.id.Data()));
                 RooAbsPdf *N_peak_lnn = wspace->pdf(Form("N_peak_%s_lnn", cat.id.Data()));
-                RooAbsPdf *N_semi_gau = wspace->pdf(Form("N_semi_%s_gau", cat.id.Data()));
+                RooAbsPdf *N_semi_lnn = wspace->pdf(Form("N_semi_%s_lnn", cat.id.Data()));
                 RooAbsPdf *N_h2mu_lnn = wspace->pdf(Form("N_h2mu_%s_lnn", cat.id.Data()));
                 RooAbsPdf *effratio_bs_gau = wspace->pdf(Form("effratio_bs_%s_gau", cat.id.Data()));
                 RooAbsPdf *effratio_bd_gau = wspace->pdf(Form("effratio_bd_%s_gau", cat.id.Data()));
@@ -280,7 +407,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
                 N_peak_mean->setVal(tmp_evt->get(0)->getRealValue(N_peak->GetName())); delete tmp_evt;
                 
                 N_semi_mean->setVal(N_semi->getVal());
-                tmp_evt = N_semi_gau->generate(RooArgSet(*N_semi),1);
+                tmp_evt = N_semi_lnn->generate(RooArgSet(*N_semi),1);
                 N_semi_mean->setVal(tmp_evt->get(0)->getRealValue(N_semi->GetName())); delete tmp_evt;
                 
                 N_h2mu_mean->setVal(N_h2mu->getVal());
@@ -294,6 +421,23 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
                 effratio_bd_mean->setVal(effratio_bd->getVal());
                 tmp_evt = effratio_bd_gau->generate(RooArgSet(*effratio_bd),1);
                 effratio_bd_mean->setVal(tmp_evt->get(0)->getRealValue(effratio_bd->GetName())); delete tmp_evt;
+            }
+        }else if (opt.Contains("freezenui")) { // freeze all of the nuisances in the fit
+            
+            // change the clone of wspace_fit
+            wspace->var("fs_over_fu")->setConstant(true);
+            wspace->var("fs_over_fu_S13")->setConstant(true);
+            wspace->var("one_over_BRBR")->setConstant(true);
+            
+            for (auto& cat: CatMan.cats) {
+                
+                // change the clone of wspace_fit
+                wspace->var(Form("N_bu_%s", cat.id.Data()))->setConstant(true);
+                wspace->var(Form("N_peak_%s", cat.id.Data()))->setConstant(true);
+                wspace->var(Form("N_semi_%s", cat.id.Data()))->setConstant(true);
+                wspace->var(Form("N_h2mu_%s", cat.id.Data()))->setConstant(true);
+                wspace->var(Form("effratio_bs_%s", cat.id.Data()))->setConstant(true);
+                wspace->var(Form("effratio_bd_%s", cat.id.Data()))->setConstant(true);
             }
         }
         
@@ -415,7 +559,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
             }
         }
         
-        RooArgSet global_ext_constr(*wspace->pdf("fs_over_fu_gau"),*wspace->pdf("one_over_BRBR_gau"));
+        RooArgSet global_ext_constr(*wspace->pdf("fs_over_fu_gau"),*wspace->pdf("fs_over_fu_S13_gau"),*wspace->pdf("one_over_BRBR_gau"));
         RooArgSet minos_list;
         for (auto& POI: POI_list) minos_list.add(*wspace->var(POI));
         
@@ -469,7 +613,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
             delete res_floatbd;
         }
         
-        if (opt.Contains("tausplot")) ProduceToyTauSPlot(wspace_res, wspace, toy_data, idx);
+        if (opt.Contains("tausplot")) ProduceToyTauSPlot(wspace_res, wspace, toy_data, idx, opt.Contains("tausyst"));
         
         delete toy_data;
         delete wspace;
@@ -477,7 +621,7 @@ void PerformToyStudy(RooWorkspace *wspace_res, RooWorkspace* wspace_gen, RooWork
     }
 }
 
-void ProducePullPlots(TString path)
+void ProducePullPlots(TString path, bool saveTuple = true)
 {
     cout << ">>> ProducePullPlots() start" << endl;
     
@@ -485,13 +629,14 @@ void ProducePullPlots(TString path)
     fcoll.Add(path);
     
     for (auto& POI: POI_list) {
-        
-        TNtupleD *nt = new TNtupleD("nt","","pull");
+    
+        vector<double> x_val;
         
         for (int file = 0; file < fcoll.GetNFiles(); file++) {
             
             TFileInfo* finfo = (TFileInfo*)fcoll.GetList()->At(file);
             TFile fin_res(finfo->GetCurrentUrl()->GetFile());
+            if ((file+1)%10==0) cout << ">>> Reading [" << file+1 << "/" << fcoll.GetNFiles() << "] " << endl;
             
             RooWorkspace *wspace_res = (RooWorkspace *)fin_res.Get("wspace");
         
@@ -513,8 +658,8 @@ void ProducePullPlots(TString path)
                     
                     if (POI == "EffTau_bs") {
                         double var = (final->getVal()-init->getVal())/final->getError();
-                        if (final->getError()<4. && final->getError()>0.1)
-                            nt->Fill(&var);
+                        if (final->getError()<8. && final->getError()>0.02)
+                            x_val.push_back(var);
                     }else {
                         double err_hi = fabs(final->getErrorHi());
                         double err_lo = fabs(final->getErrorLo());
@@ -524,31 +669,38 @@ void ProducePullPlots(TString path)
                         double var = (final->getVal()-init->getVal());
                         if (var>0.) var /= err_lo;
                         if (var<0.) var /= err_hi;
-                        if (err_hi>0. && err_lo>0.) nt->Fill(&var);
+                        if (err_hi>0. && err_lo>0.) x_val.push_back(var);
                     }
                 }
             }
             
             wspace_res->Delete();
         }
-        if (nt->GetEntries()==0) continue;
-        
+        if (x_val.size()==0) continue;
+                
         RooRealVar pull("pull","",-6.,6.);
+        RooDataSet *rds_pull = new RooDataSet("rds_pull","",RooArgSet(pull));
+        for (int idx=0; idx<(int)x_val.size(); idx++) {
+            pull.setVal(x_val[idx]);
+            rds_pull->add(RooArgSet(pull));
+        }
         
         TString title = Form("CMS simluation");
         
         RooPlot* frame = pull.frame(Bins(30), Title(" "));
         
-        RooDataSet *rds_pull = new RooDataSet("rds_pull","",nt,RooArgSet(pull));
-        
         RooRealVar Mean("Mean", "", 0., -3.0, 3.0);
         RooRealVar Sigma("Sigma","", 1., 0.5, 2.0);
         RooGaussian model("model","", pull, Mean, Sigma);
         
+        RooRealVar SigmaL("SigmaL","", 1., 0.5, 2.0);
+        RooRealVar SigmaR("SigmaR","", 1., 0.5, 2.0);
+        RooBifurGauss model2("model2","", pull, Mean, SigmaL, SigmaR);
+        
         model.fitTo(*rds_pull,Minos(true));
         
         rds_pull->plotOn(frame);
-        model.plotOn(frame, LineColor(kBlue), LineWidth(3), NumCPU(NCPU), Name("model"));
+        model.plotOn(frame, LineColor(kBlue), LineWidth(3), NumCPU(NCPU));
         
         frame->SetMinimum(0.);
         frame->SetMaximum(frame->GetMaximum()*1.3);
@@ -578,9 +730,10 @@ void ProducePullPlots(TString path)
         TLegend *leg1 = new TLegend(0.20,0.82,0.91,0.91);
         leg1->SetTextSize(0.042);
         leg1->SetHeader(Form("Pull fit: #mu = %.2f #pm%.2f, #sigma = %.2f #pm%.2f",
-                             Mean.getVal(),Mean.getError(),Sigma.getVal(),Sigma.getError()));
+                        Mean.getVal(),Mean.getError(),Sigma.getVal(),Sigma.getError()));
         leg1->SetFillColor(kWhite);
         leg1->SetLineColor(kWhite);
+        leg1->SetFillStyle(0);
         leg1->Draw();
         
         canvas->Print(Form("fig/pull_%s.pdf",POI.Data()));
@@ -595,7 +748,7 @@ void ProducePullPlots(TString path)
         model.fitTo(*rds_pull,Minos(true),Range("center"));
         
         rds_pull->plotOn(frame);
-        model.plotOn(frame, LineColor(kBlue), LineWidth(3), NumCPU(NCPU), Name("model"));
+        model.plotOn(frame, LineColor(kBlue), LineWidth(3), NumCPU(NCPU));
         
         frame->SetMinimum(0.);
         frame->SetMaximum(frame->GetMaximum()*1.3);
@@ -617,21 +770,68 @@ void ProducePullPlots(TString path)
         
         canvas->Update();
         
-        leg1->SetHeader(Form("Pull fit [-3,+3]: #mu = %.2f #pm%.2f, #sigma = %.2f #pm%.2f",
+        leg1->SetHeader(Form("Fit [-3,+3]: #mu = %.2f #pm%.2f, #sigma = %.2f #pm%.2f",
                              Mean.getVal(),Mean.getError(),Sigma.getVal(),Sigma.getError()));
         leg1->Draw();
         
         canvas->Print(Form("fig/pull_%s_narrow.pdf",POI.Data()));
+
+        delete frame;
+        delete canvas;
         
-        delete nt;
+        frame = pull.frame(Bins(30), Title(" "));
+        model2.fitTo(*rds_pull,Minos(true));
+        
+        rds_pull->plotOn(frame);
+        model2.plotOn(frame, LineColor(kBlue), LineWidth(3), NumCPU(NCPU));
+        
+        frame->SetMinimum(0.);
+        frame->SetMaximum(frame->GetMaximum()*1.3);
+        
+        canvas = new TCanvas("canvas", "", 600, 600);
+        canvas->SetMargin(0.14,0.06,0.13,0.07);
+        
+        frame->GetYaxis()->SetTitleOffset(1.15);
+        frame->GetYaxis()->SetTitle("Entries");
+        frame->GetXaxis()->SetTitleOffset(1.15);
+        frame->GetXaxis()->SetLabelOffset(0.01);
+        frame->GetXaxis()->SetTitle(Form("Pull [%s]",POI.Data()));
+        frame->GetXaxis()->SetTitleSize(0.043);
+        frame->GetYaxis()->SetTitleSize(0.043);
+        frame->Draw();
+        gStyle->SetErrorX(0);
+        
+        tex.DrawLatex(0.14,0.94,title);
+        
+        canvas->Update();
+        
+        leg1->SetHeader(Form("#mu = %.2f#pm%.2f, #sigma_{L}/#sigma_{R} = %.2f#pm%.2f/%.2f#pm%.2f",
+                             Mean.getVal(),Mean.getError(),SigmaL.getVal(),SigmaL.getError(),SigmaR.getVal(),SigmaR.getError()));
+        leg1->Draw();
+        
+        canvas->Print(Form("fig/pull_%s_bifgauss.pdf",POI.Data()));
+        
+        
         delete rds_pull;
         delete leg1;
         delete frame;
         delete canvas;
+        
+        if (saveTuple) {
+            TFile *fout = new TFile(Form("fig/pull_%s.root",POI.Data()),"recreate");
+            TNtupleD *nt = new TNtupleD("nt","","pull");
+            for (int idx=0; idx<(int)x_val.size(); idx++) {
+                nt->Fill(&x_val[idx]);
+            }
+            nt->Write();
+            fout->Close();
+            
+            delete fout;
+        }
     }
 }
 
-void ProduceMeanErrorPlots(TString path)
+void ProduceMeanErrorPlots(TString path, bool saveTuple = true)
 {
     cout << ">>> ProduceMeanErrorPlots() start" << endl;
     
@@ -640,12 +840,13 @@ void ProduceMeanErrorPlots(TString path)
     
     for (auto& POI: POI_list) {
         
-        vector<double> x_val[4];
+        vector<double> x_val[6]; // mean, para_err, err_hi, err_lo, sys_hi, sys_lo
         
         for (int file = 0; file < fcoll.GetNFiles(); file++) {
             
             TFileInfo* finfo = (TFileInfo*)fcoll.GetList()->At(file);
             TFile fin_res(finfo->GetCurrentUrl()->GetFile());
+            if ((file+1)%10==0) cout << ">>> Reading [" << file+1 << "/" << fcoll.GetNFiles() << "] " << endl;
             
             RooWorkspace *wspace_res = (RooWorkspace *)fin_res.Get("wspace");
             
@@ -665,35 +866,43 @@ void ProduceMeanErrorPlots(TString path)
                     if (final==NULL) break;
                     
                     if (POI == "EffTau_bs")
-                        if (final->getError()>8. || final->getError()<0.05) continue;
+                        if (final->getError()>=8. || final->getError()<=0.02) continue;
                     
                     x_val[0].push_back(final->getVal());
                     x_val[1].push_back(final->getError());
                     x_val[2].push_back(final->getErrorHi());
                     x_val[3].push_back(final->getErrorLo());
+                    
+                    if (POI == "EffTau_bs") {
+                        RooFitResult *res_syst = (RooFitResult*)wspace_res->obj(Form("fitresult_taubs_syst_toy_%d",idx));
+                        if (res_syst!=NULL) {
+                            RooRealVar* syst = (RooRealVar*)res_syst->floatParsFinal().find(POI);
+                            x_val[4].push_back(syst->getErrorHi());
+                            x_val[5].push_back(syst->getErrorLo());
+                        }
+                    }
                 }
             }
             wspace_res->Delete();
         }
-        if (x_val[0].size()==0) continue;
         
         TString title = Form("CMS simluation");
         
-        vector<TString> types = {"mean","error","errorhi","errorlo"};
-        vector<TString> xtitles = {"Fitted","Error","Error(+)","Error(-)"};
+        vector<TString> types = {"mean","error","errorhi","errorlo","systhi","systlo"};
+        vector<TString> xtitles = {"Fitted","Error","Error(+)","Error(-)","Sys. Error(+)","Sys. Error(-)"};
         
-        for(int type=0; type<4; type++) {
+        for(int type=0; type<6; type++) {
+            if (x_val[type].size()==0) continue;
             
-            double x_min    = TMath::MinElement(x_val[type].size(),x_val[type].data());
-            double x_max    = TMath::MaxElement(x_val[type].size(),x_val[type].data());
+            sort(x_val[type].begin(),x_val[type].end());
+            
+            double x_min    = x_val[type][x_val[type].size()*1/100];
+            double x_max    = x_val[type][x_val[type].size()*99/100];
+            //double x_min    = TMath::MinElement(x_val[type].size(),x_val[type].data());
+            //double x_max    = TMath::MaxElement(x_val[type].size(),x_val[type].data());
             double x_mean   = TMath::Mean(x_val[type].size(),x_val[type].data());
             double x_rms    = TMath::RMS(x_val[type].size(),x_val[type].data());
             double x_median = TMath::Median(x_val[type].size(),x_val[type].data());
-            
-            if (POI == "EffTau_bs") {
-                if (x_min<-8.) x_min = -8.;
-                if (x_max>+8.) x_max = +8.;
-            }
             
             TH1D* frame = new TH1D("frame","", 24, x_min-(x_max-x_min)*0.1, x_max+(x_max-x_min)*0.1);
             for(auto& val : x_val[type]) frame->Fill(val);
@@ -738,10 +947,27 @@ void ProduceMeanErrorPlots(TString path)
             delete frame;
             delete canvas;
         }
+        
+        if (saveTuple) {
+            TFile *fout = new TFile(Form("fig/meanerr_%s.root",POI.Data()),"recreate");
+            TNtupleD *nt = new TNtupleD("nt","","mean:error:errorhi:errorlo:systhi:systlo");
+            for (int idx=0; idx<(int)x_val[0].size(); idx++) {
+                double buffer[6];
+                for(int type=0; type<6; type++) {
+                    if ((int)x_val[type].size()>idx) buffer[type] = x_val[type][idx];
+                    else buffer[type] = 0.;
+                }
+                nt->Fill(buffer);
+            }
+            nt->Write();
+            fout->Close();
+            
+            delete fout;
+        }
     }
 }
 
-void ProduceSignificancePlots(TString path)
+void ProduceSignificancePlots(TString path, bool saveTuple = true)
 {
     cout << ">>> ProduceSignificancePlots() start" << endl;
     
@@ -754,6 +980,7 @@ void ProduceSignificancePlots(TString path)
         
         TFileInfo* finfo = (TFileInfo*)fcoll.GetList()->At(file);
         TFile fin_res(finfo->GetCurrentUrl()->GetFile());
+        if ((file+1)%10==0) cout << ">>> Reading [" << file+1 << "/" << fcoll.GetNFiles() << "] " << endl;
         
         RooWorkspace *wspace_res = (RooWorkspace *)fin_res.Get("wspace");
         
@@ -833,6 +1060,21 @@ void ProduceSignificancePlots(TString path)
         delete frame;
         delete canvas;
     }
+    
+    if (saveTuple) {
+        TFile *fout = new TFile("fig/significance.root","recreate");
+        TNtupleD *nt = new TNtupleD("nt","","sigbd:sigbs");
+        for (int idx=0; idx<(int)x_val[0].size(); idx++) {
+            double buffer[2];
+            for(int type=0; type<2; type++)
+                buffer[type] = x_val[type][idx];
+            nt->Fill(buffer);
+        }
+        nt->Write();
+        fout->Close();
+        
+        delete fout;
+    }
 }
 
 void ProduceDemoSubPlots(RooWorkspace *wspace)
@@ -891,7 +1133,6 @@ void ProduceDemoSubPlots(RooWorkspace *wspace)
     }
     
     for (auto& cat: CatMan.cats) {
-        
         RooRealVar *Mass = wspace->var("Mass");
         
         TString cut = Form("GlobalCat==%d",cat.index);
@@ -1248,9 +1489,7 @@ void ApplyYieldScale(RooWorkspace *wspace, double yield_scale)
         
         RooRealVar *N_semi = wspace->var(Form("N_semi_%s", cat.id.Data()));
         RooRealVar *N_semi_mean = wspace->var(Form("N_semi_%s_mean", cat.id.Data()));
-        RooRealVar *N_semi_sigma = wspace->var(Form("N_semi_%s_sigma", cat.id.Data()));
         N_semi_mean->setVal(N_semi_mean->getVal()*yield_scale);
-        N_semi_sigma->setVal(N_semi_sigma->getVal()*yield_scale);
         N_semi->setMax(N_semi->getMax()*yield_scale);
         N_semi->setVal(N_semi->getVal()*yield_scale);
         N_semi->setMin(N_semi->getMin()*yield_scale);
@@ -1276,13 +1515,39 @@ void ApplyYieldScale(RooWorkspace *wspace, double yield_scale)
     }
 }
 
+void SwitchOffComponent(RooWorkspace *wspace, TString key)
+{
+    cout << ">>> SwitchOffComponent() start" << endl;
+    cout << ">>> Set " << key << " to be off." << endl;
+    
+    if (key=="semi" || key=="h2mu" || key=="peak") // set the constraints to a small number as an approximation
+    for (auto& cat: CatMan.cats) {
+        RooRealVar *N_var = wspace->var(Form("N_%s_%s", key.Data(), cat.id.Data()));
+        RooRealVar *N_var_mean = wspace->var(Form("N_%s_%s_mean", key.Data(), cat.id.Data()));
+        RooRealVar *N_var_kappa = wspace->var(Form("N_%s_%s_kappa", key.Data(), cat.id.Data()));
+        N_var_mean->setVal(1E-7);
+        N_var_kappa->setVal(1.1);
+        N_var->setMin(0.5E-7);
+        N_var->setVal(1.0E-7);
+        N_var->setMax(1.5E-7);
+        N_var->setConstant(true);
+    }
+    
+    if (key=="bd") {
+        for (auto& cat: CatMan.cats)
+            wspace->var(Form("effratio_bd_%s", cat.id.Data()))->setConstant(true);
+        wspace->var("BF_bd")->setVal(0.);
+        wspace->var("BF_bd")->setConstant(true);
+    }
+}
+
 void bmm4toystudy(TString commands = "")
 {
     // -----------------------------------------------------------
     // parse the commands
-    bool do_genfit = false, do_minos = false, do_tausplot = false;
+    bool do_genfit = false, do_minos = false, do_tausplot = false, do_tausyst = false;
     bool do_make_plots = false, do_make_demo = false;
-    bool do_freq = false, do_bdstat = false;
+    bool do_freq = false, do_bdstat = false, do_freezenui = false;
     int seed = 1234;
     int iterations = 10;
     double yield_scale = 1.0;
@@ -1292,6 +1557,7 @@ void bmm4toystudy(TString commands = "")
     vector<TString> set_genpar_names, set_fitpar_names;
     vector<double> set_genpar_values, set_fitpar_values;
     vector<int> set_genpar_states, set_fitpar_states;
+    vector<TString> offcomponents;
     
     cout << ">>> -------------------------" << endl;
     cout << ">>> BMM4 toy study start" << endl;
@@ -1300,8 +1566,10 @@ void bmm4toystudy(TString commands = "")
     cout << ">>> - genfit                                : gen & fit to toy" << endl;
     cout << ">>> - minos                                 : call MINOS for BFs" << endl;
     cout << ">>> - tausplot                              : enable lifetime sPlot study" << endl;
+    cout << ">>> - tausyst                               : enable lifetime systematic study" << endl;
     cout << ">>> - freq                                  : produce frequentist toy (w/ postfit nuisances)" << endl;
     cout << ">>> - bdstat                                : calculate profile likelihood test statistics (F&C study or upper limit for Bd)" << endl;
+    cout << ">>> - freezenui                             : toy study with fixed nuisances" << endl;
     cout << ">>> - make_plots                            : produce resulting plots from toy" << endl;
     cout << ">>> - make_demo                             : produce demo projection plots" << endl;
     cout << ">>> - seed=[1234]                           : set the random seed" << endl;
@@ -1312,6 +1580,7 @@ void bmm4toystudy(TString commands = "")
     cout << ">>> - ws_res=[wspace_toyresult.root]        : resulting workspace file" << endl;
     cout << ">>> - set_genpar [name]=[value]=[float/fix] : set parameter value & state (for gen workspace)" << endl;
     cout << ">>> - set_fitpar [name]=[value]=[float/fix] : set parameter value & state (for fit workspace)" << endl;
+    cout << ">>> - switch_off=[name]                     : switch off one of the fitting components (bd, semi, h2mu, peak)" << endl;
     cout << ">>> parsing commands: [" << commands << "]" << endl;
     if (commands=="") return;
     
@@ -1321,8 +1590,10 @@ void bmm4toystudy(TString commands = "")
         if (tok=="genfit")              do_genfit = true;       // gen & fit to toy
         else if (tok=="minos")          do_minos = true;        // call MINOS for BFs
         else if (tok=="tausplot")       do_tausplot = true;     // enable lifetime sPlot study
+        else if (tok=="tausyst")        do_tausyst = true;      // enable lifetime systematic study
         else if (tok=="freq")           do_freq = true;         // switch to postfit nuisances
         else if (tok=="bdstat")         do_bdstat = true;       // calculate profile likelihood test statistics for Bd
+        else if (tok=="freezenui")      do_freezenui = true;    // toy study with fixed nuisances
         else if (tok=="make_plots")     do_make_plots = true;   // produce resulting plots from toy
         else if (tok=="make_demo")      do_make_demo = true;    // produce demo projection plots
         else if (tok=="seed") {                                 // set the random seed
@@ -1357,6 +1628,9 @@ void bmm4toystudy(TString commands = "")
             set_fitpar_values.push_back(tok.Atof());
             commands.Tokenize(tok, from, "[ \t;=:]");
             set_fitpar_states.push_back(tok=="fix"?1:0); // 1 - fix, 0 - float
+        }else if (tok=="switch_off") {                          // switch off one of the fitting components
+            commands.Tokenize(tok, from, "[ \t;=:]");
+            offcomponents.push_back(tok);
         }else {
             cout << ">>> unknown command '" << tok << "'" << endl;
             return;
@@ -1383,11 +1657,19 @@ void bmm4toystudy(TString commands = "")
         exist_protection(file_gen);
         TFile *fin_gen = new TFile(file_gen);
         RooWorkspace *wspace_gen = (RooWorkspace *)fin_gen->Get("wspace");
-        
-        wspace_gen->var("PeeK_bs_2016GHs01_0_0")->setVal(wspace_gen->var("PeeK_bs_2016GHs01_0_0")->getVal()*0.794);
+
+       wspace_gen->var("PeeK_bs_2016GHs01_0_0")->setVal(wspace_gen->var("PeeK_bs_2016GHs01_0_0")->getVal()*0.794);
         wspace_gen->var("PeeK_bs_2016GHs01_1_0")->setVal(wspace_gen->var("PeeK_bs_2016GHs01_1_0")->getVal()*0.692);
         wspace_gen->var("PeeK_bd_2016GHs01_0_0")->setVal(wspace_gen->var("PeeK_bd_2016GHs01_0_0")->getVal()*0.806);
         wspace_gen->var("PeeK_bd_2016GHs01_1_0")->setVal(wspace_gen->var("PeeK_bd_2016GHs01_1_0")->getVal()*0.696);
+
+        wspace_gen->var("Sigma_peak_2016GHs01_0_0")->setVal(wspace_gen->var("Sigma_peak_2016GHs01_0_0")->getVal()*0.806);
+        wspace_gen->var("Sigma_peak_2016GHs01_1_0")->setVal(wspace_gen->var("Sigma_peak_2016GHs01_1_0")->getVal()*0.696);
+        wspace_gen->var("Sigma2_peak_2016GHs01_0_0")->setVal(wspace_gen->var("Sigma2_peak_2016GHs01_0_0")->getVal()*0.806);
+        wspace_gen->var("Sigma2_peak_2016GHs01_1_0")->setVal(wspace_gen->var("Sigma2_peak_2016GHs01_1_0")->getVal()*0.696);
+
+//        wspace_gen->var("N_bu_2016GHs01_0_0")->setVal(wspace_gen->var("N_bu_2016GHs01_0_0")->getVal()*0.7);
+//        wspace_gen->var("N_bu_2016GHs01_1_0")->setVal(wspace_gen->var("N_bu_2016GHs01_1_0")->getVal()*0.7);
         
         // parameter modifications (gen workspace)
         for (int idx = 0; idx<(int)set_genpar_names.size(); idx++) {
@@ -1418,15 +1700,22 @@ void bmm4toystudy(TString commands = "")
             ApplyYieldScale(wspace_gen, yield_scale);
             ApplyYieldScale(wspace_fit, yield_scale);
         }
+        for (int idx=0; idx<(int)offcomponents.size(); idx++) {
+            SwitchOffComponent(wspace_gen, offcomponents[idx]);
+            SwitchOffComponent(wspace_fit, offcomponents[idx]);
+        }
         
         TString toy_opt = "";
-        if (do_freq) toy_opt += "freq;";
+        
+        if (do_freezenui) toy_opt += "freezenui;";
+        else if (do_freq) toy_opt += "freq;";
         else toy_opt += "prefit;";
         
         if (do_bdstat) toy_opt += "bdstat;";
         else toy_opt += "signif;";
         
-        if (do_tausplot) toy_opt += "tausplot;";
+        if (do_tausplot || do_tausyst) toy_opt += "tausplot;";
+        if (do_tausyst) toy_opt += "tausyst;";
         
         PerformToyStudy(wspace_res, wspace_gen, wspace_fit, iterations, do_minos, toy_opt);
     
@@ -1453,7 +1742,7 @@ void bmm4toystudy(TString commands = "")
             ApplyYieldScale(wspace_gen, yield_scale);
         
         ProduceDemoSubPlots(wspace_gen);
-        ProduceDemoTauSPlot(wspace_gen);
+        //ProduceDemoTauSPlot(wspace_gen);
         delete fin_gen;
     }
     
