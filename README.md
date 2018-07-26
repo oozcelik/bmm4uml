@@ -19,6 +19,7 @@ cd your_working_area
 git clone https://github.com/kfjack/bmm4uml
 cd bmm4uml
 mkdir fig input/bmm4
+make -j8
 ```
 Please modify the Makefile to match your system (generally it should work out of box, but just in case!)
 
