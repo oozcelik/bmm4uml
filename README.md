@@ -5,7 +5,7 @@ to extract signal lifetime ----
 
 + Branching fraction fit
 
-+ sPlot lifetime fit
++ sPlot lifetime fit ----- For the YR study, we only include statistical uncertainty. 
 
 ----------------------------------------------------------------------------------------
 
@@ -41,6 +41,7 @@ Please take a look at the full command list:
 > - freq                                  : produce frequentist toy (w/ postfit nuisances)
 > - bdstat                                : calculate profile likelihood test statistics (F&C study or upper limit for Bd)
 > - make_plots                            : produce resulting plots from toy
+> - tausyst                               : enable lifetime systematic study 
 > - make_demo                             : produce demo projection plots
 > - seed=[1234]                           : set the random seed
 > - iterations=[10]                       : set # of iterations
